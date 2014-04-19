@@ -1,4 +1,4 @@
-SUBDIRS = raft
+SUBDIRS = scow
 
 all_apps = $(SUBDIRS)
 

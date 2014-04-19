@@ -1,4 +1,6 @@
 * About
-An Ocaml implementation of the Raft algorithm.  This is a pure library and only
-implements the state machine of Raft.
+An Ocaml implementation of the Raft algorithm.  It allows multiplexing of logs
+through a single Raft state machine, providing the possibility of performing
+replicating orthogonal logs in parallel.
+
 
