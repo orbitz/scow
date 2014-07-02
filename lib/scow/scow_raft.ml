@@ -1,80 +1,101 @@
-module Term = struct
-  type t = Num.num
+open Core.Std
+open Async.Std
 
-  let zero      = Num.num_of_int 0
-  let succ      = Num.succ_num
-  let compare   = Num.compare_num
-  let of_string = Num.num_of_string
-  let to_string = Num.string_of_num
+module Term = struct
+  type t = int
+
+  let zero () = 0
+
+  let succ t = t + 1
+
+  let pred t = t - 1
+
+  let of_int = function
+    | n when n >= 0 -> Some n
+    | _             -> None
+
+  let to_int t = t
+end
+
+module Log_index = struct
+  (* Semantically thing for now *)
+  type t = Term.t
+
+  let zero   = Term.zero
+  let succ   = Term.succ
+  let pred   = Term.pred
+  let of_int = Term.of_int
+  let to_int = Term.to_int
+end
+
+module Append_entries = struct
+  type 'elt t = { term          : Term.t
+                ; prev_log_idx  : Log_index.t
+                ; prev_log_term : Term.t
+                ; leader_commit : Log_index.t
+                ; entries       : 'elt list
+                }
+end
+
+module Request_vote = struct
+  type t = { term           : Term.t
+           ; last_log_index : Log_index.t
+           ; last_log_term  : Term.t
+           }
+end
+
+module Msg = struct
+  type ('n, 'elt) t =
+    | Append_entries      of ('n * 'elt Append_entries.t)
+    | Resp_append_entries of 'n
+    | Request_vote        of ('n * Request_vote.t)
+    | Resp_request_vote   of 'n
+end
+
+module type TRANSPORT = sig
+  type elt
+  type t
+
+  module Node : sig
+    type t
+    val compare : t -> t -> int
+  end
+
+  val listen : t -> ((Node.t, elt) Msg.t, unit) Deferred.Result.t
+
+  val resp_append_entries : t -> Node.t -> unit -> (unit, unit) Deferred.Result.t
+  val resp_request_vote   : t -> Node.t -> unit -> (unit, unit) Deferred.Result.t
+
+  val request_vote        : t -> Node.t -> (unit, unit) Deferred.Result.t
+  val append_entries      : t -> Node.t -> unit -> (unit, unit) Deferred.Result.t
 end
 
 module type LOG = sig
   type elt
   type t
 
-  val append    : elt -> t -> t option
-  val last_term : t -> Term.t
+  val append_log : t -> 'elt Append_entries.t -> (unit, [> `Append_failed ]) Deferred.Result.t
+  val get_entry  : t -> Log_index.t -> ((Term.t * elt), [> `Not_found ]) Deferred.Result.t
 end
 
-module type SERVER = sig
-  type t
+module Make = functor (Log : LOG) -> functor (Transport : TRANSPORT) -> struct
+  type t = unit
 
-  val equal : t -> t -> bool
-end
+  module Init_args = struct
+    type t = { me                       : Transport.Node.t
+             ; nodes                    : Transport.Node.t list
+             ; transport                : Transport.t
+             ; log                      : Log.t
+             ; max_parallel_replication : int
+             }
+  end
 
-module Make = functor (Server : SERVER) -> functor (Log : LOG) -> struct
-  type 'a t = { voted_for    : Server.t option
-              ; votes        : Server.t list
-              ; me           : Server.t
-              ; servers      : Server.t list
-              ; current_term : Term.t
-              ; log          : Log.t
-              ; leader       : Server.t option
-              }
+  let start init_args = failwith "nyi"
+  let stop t = failwith "nyi"
+  let append_log t entries = failwith "nyi"
 
-
-  type error = [ `Bad_term | `Bad_previous ]
-
-  let create ~me ~log servers =
-    { voted_for    = None
-    ; votes        = []
-    ; me           = me
-    ; servers      = servers
-    ; current_term = Log.last_term log
-    ; log          = log
-    ; leader       = None
-    }
-
-  let servers t = t.servers
-
-  let current_term t = t.current_term
-
-  let voted_for t = t.voted_for
-
-  let log t = t.log
-
-  let set_log log t = { t with log = log }
-
-  let leader t = t.leader
-
-  let heartbeat_timeout t = { t with voted_for = None; leader = None }
-
-  let election_timeout t = { t with votes = [] }
-
-  let request_vote server = function
-    | { voted_for = None } as t -> Some { t with voted_for = Some server }
-    | _                         -> None
-
-  let receive_vote server t = { t with votes = server::t.votes }
-
-  let is_now_leader t =
-    if List.length t.votes > (List.length t.servers / 2) then
-      Some { t with votes = []; leader = Some t.me }
-    else
-      None
-
-
-  let receive_log _ _ = failwith "nyi"
-  let append_log _ _ = failwith "nyi"
-
+  let nodes t = failwith "nyi"
+  let current_term t = failwith "nyi"
+  let voted_for t = failwith "nyi"
+  let leader t = failwith "nyi"
 end

@@ -1,66 +1,93 @@
+open Async.Std
+
 module Term : sig
   type t
 
-  val zero      : t
-  val succ      : t -> t
-  val compare   : t -> t -> int
-  val of_string : string -> t
-  val to_string : t -> string
+  val zero   : unit -> t
+  val succ   : t -> t
+  val pred   : t -> t
+  val of_int : int -> t option
+  val to_int : t -> int
+end
+
+module Log_index : sig
+  type t
+
+  val zero   : unit -> t
+  val succ   : t -> t
+  val pred   : t -> t
+  val of_int : int -> t option
+  val to_int : t -> int
+end
+
+module Append_entries : sig
+  type 'elt t = { term          : Term.t
+                ; prev_log_idx  : Log_index.t
+                ; prev_log_term : Term.t
+                ; leader_commit : Log_index.t
+                ; entries       : 'elt list
+                }
+end
+
+module Request_vote : sig
+  type t = { term           : Term.t
+           ; last_log_index : Log_index.t
+           ; last_log_term  : Term.t
+           }
+end
+
+module Msg : sig
+  type ('n, 'elt) t =
+    | Append_entries      of ('n * 'elt Append_entries.t)
+    | Resp_append_entries of 'n
+    | Request_vote        of ('n * Request_vote.t)
+    | Resp_request_vote   of 'n
+end
+
+module type TRANSPORT = sig
+  type elt
+  type t
+
+  module Node : sig
+    type t
+    val compare : t -> t -> int
+  end
+
+  val listen : t -> ((Node.t, elt) Msg.t, unit) Deferred.Result.t
+
+  val resp_append_entries : t -> Node.t -> unit -> (unit, unit) Deferred.Result.t
+  val resp_request_vote   : t -> Node.t -> unit -> (unit, unit) Deferred.Result.t
+
+  val request_vote        : t -> Node.t -> (unit, unit) Deferred.Result.t
+  val append_entries      : t -> Node.t -> unit -> (unit, unit) Deferred.Result.t
 end
 
 module type LOG = sig
   type elt
   type t
 
-  val append    : elt -> t -> t option
-  val last_term : t -> Term.t
+  val append_log : t -> 'elt Append_entries.t -> (unit, [> `Append_failed ]) Deferred.Result.t
+  val get_entry  : t -> Log_index.t -> ((Term.t * elt), [> `Not_found ]) Deferred.Result.t
 end
 
-module type SERVER = sig
+module Make : functor (Log : LOG) -> functor (Transport : TRANSPORT) -> sig
   type t
 
-  val equal : t -> t -> bool
-end
+  module Init_args : sig
+    type t = { me                       : Transport.Node.t
+             ; nodes                    : Transport.Node.t list
+             ; transport                : Transport.t
+             ; log                      : Log.t
+             ; max_parallel_replication : int
+             }
+  end
 
-module Make : functor (Server : SERVER) -> functor (Log : LOG) -> sig
-  type 'a t
-  type error            = [ `Bad_term | `Bad_previous ]
+  val start        : Init_args.t -> t
+  val stop         : t -> unit Deferred.t
+  val append_log   : t -> Log.elt list -> (unit, [> `Not_master | `Append_failed ]) Deferred.Result.t
 
-  val create            : me:Server.t -> log:Log.t -> Server.t list -> [ `Follower ] t
-
-  val servers           : 'a t -> Server.t list
-
-  val current_term      : 'a t -> Term.t
-  val voted_for         : 'a t -> Server.t option
-
-  val log               : 'a t -> Log.t
-  val set_log           : Log.t -> 'a t -> 'a t
-
-  val leader            : 'a t -> Server.t option
-
-  (*
-   * Triggered when we are a follower and have not heard from the leader
-   * in some timeout period
-   *)
-  val heartbeat_timeout : [ `Follower] t -> [ `Candidate ] t
-
-  (*
-   * This set of functions are used during a voting round
-   *
-   * request_vote - A server is requesting a vote from us.  Returns [t option]
-   * if it is granted and None if it is not
-   *
-   * receive_vote - A vote has been requested and received from the server
-   *
-   * is_now_leader - Tests if the current state machine can become a leader.
-   * If so, return it.
-   *)
-  val election_timeout  : [ `Candidate ] t -> [ `Candidate ] t
-  val request_vote      : Server.t -> [ `Follower ] t -> [ `Follower ] t option
-  val receive_vote      : Server.t -> [ `Candidate ] t -> [ `Candidate ] t
-  val is_now_leader     : [ `Candidate ] t -> [ `Leader ] t option
-
-  val receive_log       : Log.t -> [ `Candidate | `Follower ] t -> ([ `Follower ] t, [> error ]) Core.Result.t
-  val append_log        : Log.t -> [ `Leader ] t -> [ `Leader ] t
-
+  val nodes        : t -> Transport.Node.t list
+  val current_term : t -> Term.t
+  val voted_for    : t -> Transport.Node.t option
+  val leader       : t -> Transport.Node.t option
 end
