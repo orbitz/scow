@@ -18,7 +18,7 @@ module Term = struct
 end
 
 module Log_index = struct
-  (* Semantically thing for now *)
+  (* Semantically same thing for now *)
   type t = Term.t
 
   let zero   = Term.zero
@@ -86,8 +86,6 @@ module type STATEM = sig
 end
 
 module Make = functor (Statem : STATEM) -> functor (Log : LOG) -> functor (Transport : TRANSPORT) -> struct
-  type t = unit
-
   module Init_args = struct
     type t = { me                       : Transport.Node.t
              ; nodes                    : Transport.Node.t list
@@ -98,12 +96,82 @@ module Make = functor (Statem : STATEM) -> functor (Log : LOG) -> functor (Trans
              }
   end
 
-  let start init_args = failwith "nyi"
-  let stop t = failwith "nyi"
-  let append_log t entries = failwith "nyi"
+  module Msg = struct
+    type append_entries = (unit, [ `Not_master | `Append_failed ] as 'e) Result.t
 
-  let nodes t = failwith "nyi"
-  let current_term t = failwith "nyi"
-  let voted_for t = failwith "nyi"
-  let leader t = failwith "nyi"
+    type t =
+      | Append_entries   of (append_entries Ivar.t * Log.elt list)
+      | Get_nodes        of Transport.Node.t list Ivar.t
+      | Get_current_term of Term.t Ivar.t
+      | Get_voted_for    of Transport.Node.t option Ivar.t
+      | Get_leader       of Transport.Node.t option Ivar.t
+  end
+
+  type t = Msg.t Gen_server.t
+
+  module Server = struct
+    let init self init_args =
+      failwith "nyi"
+
+    let handle_call self state msg =
+      failwith "nyi"
+
+    let terminate _reason state =
+      failwith "nyi"
+
+    let callbacks = { Gen_server.Server.init; handle_call; terminate }
+  end
+
+  let start init_args =
+    Gen_server.start init_args Server.callbacks
+    >>= function
+      | Ok t    -> Deferred.return (Ok t)
+      | Error _ -> Deferred.return (Error ())
+
+  let stop t =
+    Gen_server.stop t
+    >>= fun _ ->
+    Deferred.unit
+
+  let append_log t entries =
+    let ret = Ivar.create () in
+    Gen_server.send t (Msg.Append_entries (ret, entries))
+    >>=? fun _ ->
+    Ivar.read ret
+    >>= function
+      | Ok ()                -> Deferred.return (Ok ())
+      | Error `Not_master    -> Deferred.return (Error `Not_master)
+      | Error `Append_failed -> Deferred.return (Error `Append_failed)
+
+  let nodes t =
+    let ret = Ivar.create () in
+    Gen_server.send t (Msg.Get_nodes ret)
+    >>=? fun _ ->
+    Ivar.read ret
+    >>= fun nodes ->
+    Deferred.return (Ok nodes)
+
+  let current_term t =
+    let ret = Ivar.create () in
+    Gen_server.send t (Msg.Get_current_term ret)
+    >>=? fun _ ->
+    Ivar.read ret
+    >>= fun current_term ->
+    Deferred.return (Ok current_term)
+
+  let voted_for t =
+    let ret = Ivar.create () in
+    Gen_server.send t (Msg.Get_voted_for ret)
+    >>=? fun _ ->
+    Ivar.read ret
+    >>= fun voted_for ->
+    Deferred.return (Ok voted_for)
+
+  let leader t =
+    let ret = Ivar.create () in
+    Gen_server.send t (Msg.Get_leader ret)
+    >>=? fun _ ->
+    Ivar.read ret
+    >>= fun leader ->
+    Deferred.return (Ok leader)
 end

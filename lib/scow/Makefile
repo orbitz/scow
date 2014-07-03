@@ -1,6 +1,6 @@
 CAMLP4=
 
-OCAMLDEP_OPTS=-package core,async
+OCAMLDEP_OPTS=-package core,async,gen_server
 OCAMLC_OPTS=$(OCAMLDEP_OPTS) -w '@f@p@u@s@40'
 OCAMLOPT_OPTS=$(OCAMLC_OPTS)
 
