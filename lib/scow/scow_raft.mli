@@ -83,6 +83,7 @@ module Make : functor (Statem : STATEM) -> functor (Log : LOG) -> functor (Trans
   module Init_args : sig
     type t = { me                       : Transport.Node.t
              ; nodes                    : Transport.Node.t list
+             ; statem                   : Statem.t
              ; transport                : Transport.t
              ; log                      : Log.t
              ; max_parallel_replication : int
