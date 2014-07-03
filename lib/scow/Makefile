@@ -1,7 +1,7 @@
 CAMLP4=
 
 OCAMLDEP_OPTS=-package core,async
-OCAMLC_OPTS=$(OCAMLDEP_OPTS)  -w '@f@p@u@s@40'
+OCAMLC_OPTS=$(OCAMLDEP_OPTS) -w '@f@p@u@s@40'
 OCAMLOPT_OPTS=$(OCAMLC_OPTS)
 
 LIB_MODULES=scow_raft.ml
