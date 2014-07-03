@@ -90,12 +90,16 @@ module Make : functor (Statem : STATEM) -> functor (Log : LOG) -> functor (Trans
              }
   end
 
-  val start        : Init_args.t -> t
+  val start        : Init_args.t -> (t, unit) Deferred.Result.t
   val stop         : t -> unit Deferred.t
-  val append_log   : t -> Log.elt list -> (unit, [> `Not_master | `Append_failed ]) Deferred.Result.t
 
-  val nodes        : t -> Transport.Node.t list
-  val current_term : t -> Term.t
-  val voted_for    : t -> Transport.Node.t option
-  val leader       : t -> Transport.Node.t option
+  val append_log   :
+    t ->
+    Log.elt list ->
+    (unit, [> `Not_master | `Append_failed | `Closed ]) Deferred.Result.t
+
+  val nodes        : t -> (Transport.Node.t list, [> `Closed ]) Deferred.Result.t
+  val current_term : t -> (Term.t, [> `Closed ]) Deferred.Result.t
+  val voted_for    : t -> (Transport.Node.t option, [> `Closed ]) Deferred.Result.t
+  val leader       : t -> (Transport.Node.t option, [> `Closed ]) Deferred.Result.t
 end
