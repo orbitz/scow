@@ -70,7 +70,14 @@ module type LOG = sig
   val get_entry  : t -> Log_index.t -> ((Term.t * elt), [> `Not_found ]) Deferred.Result.t
 end
 
-module Make : functor (Log : LOG) -> functor (Transport : TRANSPORT) -> sig
+module type STATEM = sig
+  type op
+  type t
+
+  val apply : t -> op -> (unit, unit) Deferred.Result.t
+end
+
+module Make : functor (Statem : STATEM) -> functor (Log : LOG) -> functor (Transport : TRANSPORT) -> sig
   type t
 
   module Init_args : sig
