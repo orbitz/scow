@@ -4,7 +4,9 @@ OCAMLDEP_OPTS=-package core,async,gen_server
 OCAMLC_OPTS=$(OCAMLDEP_OPTS) -w '@f@p@u@s@40'
 OCAMLOPT_OPTS=$(OCAMLC_OPTS)
 
-LIB_MODULES=scow.ml
+LIB_MODULES=scow_log_index.ml scow.ml scow_statem.ml \
+	scow_transport.ml scow_log.ml scow_rpc.ml \
+	scow_term.ml scow_vote_store.ml
 NON_LIB_MODULES=
 
 BYTE_TARGETS=scow.cma
