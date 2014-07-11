@@ -122,6 +122,11 @@ struct
     let callbacks = { Gen_server.Server.init; handle_call; terminate }
   end
 
+  (*
+   ******************************************************************
+   * API Functions
+   ******************************************************************
+   *)
   let start init_args =
     Gen_server.start init_args Server.callbacks
     >>= function
@@ -143,35 +148,26 @@ struct
       | Error `Not_master    -> Deferred.return (Error `Not_master)
       | Error `Append_failed -> Deferred.return (Error `Append_failed)
 
-  let nodes t =
-    let ret = Ivar.create () in
-    Gen_server.send t (Msg.Get_nodes ret)
+  let send_with_ret t ret msg =
+    Gen_server.send t msg
     >>=? fun _ ->
     Ivar.read ret
-    >>= fun nodes ->
-    Deferred.return (Ok nodes)
+    >>= fun result ->
+    Deferred.return (Ok result)
+
+  let nodes t =
+    let ret = Ivar.create () in
+    send_with_ret t ret (Msg.Get_nodes ret)
 
   let current_term t =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Get_current_term ret)
-    >>=? fun _ ->
-    Ivar.read ret
-    >>= fun current_term ->
-    Deferred.return (Ok current_term)
+    send_with_ret t ret (Msg.Get_current_term ret)
 
   let voted_for t =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Get_voted_for ret)
-    >>=? fun _ ->
-    Ivar.read ret
-    >>= fun voted_for ->
-    Deferred.return (Ok voted_for)
+    send_with_ret t ret (Msg.Get_voted_for ret)
 
   let leader t =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Get_leader ret)
-    >>=? fun _ ->
-    Ivar.read ret
-    >>= fun leader ->
-    Deferred.return (Ok leader)
+    send_with_ret t ret (Msg.Get_leader ret)
 end
