@@ -19,31 +19,29 @@ struct
 
   module Msg = Scow_server_msg.Make(Log)(Transport)
   module State = Scow_server_state.Make(Statem)(Log)(Transport)
+  module Candidate = Scow_server_candidate.Make(Statem)(Log)(Vote_store)(Transport)
 
   type t = Msg.t Gen_server.t
 
   module Server = struct
     module Resp = Gen_server.Response
 
-    (* let rec transport_listener_loop server transport = *)
-    (*   Transport.listen transport *)
-    (*   >>=? fun msg -> begin *)
-    (*     Gen_server.send server (Msg.Recv_msg msg) *)
-    (*     >>= function *)
-    (*       | Ok _ -> *)
-    (*         transport_listener_loop server transport *)
-    (*       | Error _ -> *)
-    (*         Deferred.return (Error ()) *)
-    (*   end *)
+    let rec transport_listener_loop server transport =
+      Transport.listen transport
+      >>=? fun msg -> begin
+        Gen_server.send server (Msg.Recv_msg msg)
+        >>= function
+          | Ok _ ->
+            transport_listener_loop server transport
+          | Error _ ->
+            Deferred.return (Error ())
+      end
 
-    (* let start_transport_listener server transport = *)
-    (*   ignore (transport_listener_loop server transport) *)
-
-    let handle_call_noop _self _state _msg =
-      failwith "nyi"
+    let start_transport_listener server transport =
+      ignore (transport_listener_loop server transport)
 
     let init self init_args =
-      (* start_transport_listener self init_args.Init_args.transport; *)
+      start_transport_listener self init_args.Init_args.transport;
       Deferred.return
         State.(Ok { me           = init_args.Init_args.me
                   ; nodes        = init_args.Init_args.nodes
@@ -56,7 +54,7 @@ struct
                   ; last_applied = Scow_log_index.zero ()
                   ; leader       = None
                   ; voted_for    = None
-                  ; handler      = handle_call_noop
+                  ; handler      = Candidate.handle_call
                   })
 
     let handle_call self state msg =
