@@ -28,8 +28,8 @@ struct
 
     let rec transport_listener_loop server transport =
       Transport.listen transport
-      >>=? fun msg -> begin
-        Gen_server.send server (Msg.Recv_msg msg)
+      >>=? fun msg_with_ctx -> begin
+        Gen_server.send server (Msg.Recv_msg msg_with_ctx)
         >>= function
           | Ok _ ->
             transport_listener_loop server transport
