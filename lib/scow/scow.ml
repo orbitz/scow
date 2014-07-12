@@ -17,9 +17,12 @@ struct
              }
   end
 
-  module Msg = Scow_server_msg.Make(Log)(Transport)
-  module State = Scow_server_state.Make(Statem)(Log)(Transport)
+  module Msg       = Scow_server_msg.Make(Log)(Transport)
+  module State     = Scow_server_state.Make(Statem)(Log)(Transport)
+
   module Candidate = Scow_server_candidate.Make(Statem)(Log)(Vote_store)(Transport)
+  module Follower  = Scow_server_follower.Make(Statem)(Log)(Vote_store)(Transport)
+  module Leader    = Scow_server_leader.Make(Statem)(Log)(Vote_store)(Transport)
 
   type t = Msg.t Gen_server.t
 
@@ -54,7 +57,11 @@ struct
                   ; last_applied = Scow_log_index.zero ()
                   ; leader       = None
                   ; voted_for    = None
-                  ; handler      = Candidate.handle_call
+                  ; handler      = Follower.handle_call
+                  ; states       = { States.follower  = Follower.handle_call
+                                   ;        candidate = Candidate.handle_call
+                                   ;        leader    = Leader.handle_call
+                                   }
                   })
 
     let handle_call self state msg =
