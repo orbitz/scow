@@ -5,6 +5,21 @@ module Make =
     functor (Log : Scow_log.T) ->
       functor (Transport : Scow_transport.T) ->
 struct
+  type msg = Scow_server_msg.Make(Log)(Transport).t
+  type 's handler =
+      msg Gen_server.t ->
+      's ->
+      msg ->
+      ('s, unit) Deferred.Result.t
+
+
+  module States = struct
+    type 's t = { follower  : 's handler
+                ; candidate : 's handler
+                ; leader    : 's handler
+                }
+  end
+
   type t = { me           : Transport.Node.t
            ; nodes        : Transport.Node.t list
            ; statem       : Statem.t
@@ -16,9 +31,7 @@ struct
            ; last_applied : Scow_log_index.t
            ; leader       : Transport.Node.t option
            ; voted_for    : Transport.Node.t option
-           ; handler      : Scow_server_msg.Make(Log)(Transport).t Gen_server.t ->
-                            t ->
-                            Scow_server_msg.Make(Log)(Transport).t ->
-                            (t, unit) Deferred.Result.t
+           ; handler      : t handler
+           ; states       : t States.t
            }
 end
