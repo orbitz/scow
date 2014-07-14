@@ -32,6 +32,6 @@ module type T = sig
     granted:bool ->
     (unit, unit) Deferred.Result.t
 
-  val request_vote        : t -> Node.t -> ((Scow_term.t * bool), unit) Deferred.Result.t
-  val append_entries      : t -> Node.t -> unit -> ((Scow_term.t * bool), unit) Deferred.Result.t
+  val request_vote   : t -> Node.t -> ((Scow_term.t * bool), unit) Deferred.Result.t
+  val append_entries : t -> Node.t -> unit -> ((Scow_term.t * bool), unit) Deferred.Result.t
 end

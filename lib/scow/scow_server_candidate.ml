@@ -9,14 +9,36 @@ module Make =
 struct
   type state = Scow_server_state.Make(Statem)(Log)(Transport).t
 
-  module Msg = Scow_server_msg.Make(Log)(Transport)
-  module TMsg = Scow_transport.Msg
+  module Msg   = Scow_server_msg.Make(Log)(Transport)
+  module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Transport)
 
-  let handle_call self state = function
-    | Msg.Recv_msg (TMsg.Append_entries (node, append_entries), ctx) ->
+  let handle_recv_append_entries self state (node, append_entries, ctx) =
+    let module Ae = Scow_rpc.Append_entries in
+    if Scow_term.compare state.State.current_term append_entries.Ae.term <= 0 then begin
+      let state = State.({ state with handler = state.states.States.follower }) in
+      state.State.handler
+        self
+        state
+        (Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx))
+    end
+    else begin
+      Transport.resp_append_entries
+        state.State.transport
+        ctx
+        ~term:state.State.current_term
+        ~success:false
+      >>=? fun () ->
       Deferred.return (Ok state)
-    | Msg.Recv_msg (TMsg.Request_vote (node, request_vote), ctx) -> begin
+    end
+
+  let schedule_heartbeat self state =
+    failwith "nyi"
+
+  let handle_call self state = function
+    | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
+      handle_recv_append_entries self state (node, append_entries, ctx)
+    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) -> begin
       Transport.resp_request_vote
         state.State.transport
         ctx
@@ -29,7 +51,9 @@ struct
       Ivar.fill ret (Error `Not_master);
       Deferred.return (Ok state)
     end
-    | _ ->
+    | Msg.Election_timeout ->
+      let state = State.({ state with handler = state.states.States.follower }) in
+      ignore (schedule_heartbeat self state);
       Deferred.return (Ok state)
 
 end

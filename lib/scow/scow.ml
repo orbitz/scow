@@ -32,7 +32,7 @@ struct
     let rec transport_listener_loop server transport =
       Transport.listen transport
       >>=? fun msg_with_ctx -> begin
-        Gen_server.send server (Msg.Recv_msg msg_with_ctx)
+        Gen_server.send server (Msg.Op (Msg.Rpc msg_with_ctx))
         >>= function
           | Ok _ ->
             transport_listener_loop server transport
@@ -45,6 +45,7 @@ struct
 
     let init self init_args =
       start_transport_listener self init_args.Init_args.transport;
+      ignore (Gen_server.send self (Msg.Op Msg.Election_timeout));
       Deferred.return
         State.(Ok { me           = init_args.Init_args.me
                   ; nodes        = init_args.Init_args.nodes
@@ -64,13 +65,18 @@ struct
                                    }
                   })
 
-    let handle_call self state msg =
-      state.State.handler self state msg
-      >>= function
-        | Ok state ->
-          Deferred.return (Resp.Ok state)
-        | Error _ ->
-          Deferred.return (Resp.Error ((), state))
+    let handle_call self state = function
+      | Msg.Op op -> begin
+        state.State.handler self state op
+        >>= function
+          | Ok state ->
+            Deferred.return (Resp.Ok state)
+          | Error _ ->
+            Deferred.return (Resp.Error ((), state))
+      end
+      | Msg.Get getter -> begin
+        Deferred.return (Resp.Ok state)
+      end
 
     let terminate _reason state =
       failwith "nyi"
@@ -96,7 +102,7 @@ struct
 
   let append_log t entries =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Append_entries (ret, entries))
+    Gen_server.send t (Msg.Op (Msg.Append_entries (ret, entries)))
     >>=? fun _ ->
     Ivar.read ret
     >>= function
@@ -113,17 +119,17 @@ struct
 
   let nodes t =
     let ret = Ivar.create () in
-    send_with_ret t ret (Msg.Get_nodes ret)
+    send_with_ret t ret (Msg.Get (Msg.Get_nodes ret))
 
   let current_term t =
     let ret = Ivar.create () in
-    send_with_ret t ret (Msg.Get_current_term ret)
+    send_with_ret t ret (Msg.Get (Msg.Get_current_term ret))
 
   let voted_for t =
     let ret = Ivar.create () in
-    send_with_ret t ret (Msg.Get_voted_for ret)
+    send_with_ret t ret (Msg.Get (Msg.Get_voted_for ret))
 
   let leader t =
     let ret = Ivar.create () in
-    send_with_ret t ret (Msg.Get_leader ret)
+    send_with_ret t ret (Msg.Get (Msg.Get_leader ret))
 end

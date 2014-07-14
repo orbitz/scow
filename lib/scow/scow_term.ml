@@ -1,3 +1,5 @@
+open Core.Std
+
 type t = int
 
 let zero () = 0
@@ -11,3 +13,5 @@ let of_int = function
   | _             -> None
 
 let to_int t = t
+
+let compare = Int.compare
