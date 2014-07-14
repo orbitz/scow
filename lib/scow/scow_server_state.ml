@@ -6,12 +6,13 @@ module Make =
       functor (Transport : Scow_transport.T) ->
 struct
   type msg = Scow_server_msg.Make(Log)(Transport).t
+  type op  = Scow_server_msg.Make(Log)(Transport).op
+
   type 's handler =
       msg Gen_server.t ->
       's ->
-      msg ->
+      op ->
       ('s, unit) Deferred.Result.t
-
 
   module States = struct
     type 's t = { follower  : 's handler

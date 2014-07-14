@@ -11,7 +11,7 @@ sig
   val handle_call :
     Scow_server_msg.Make(Log)(Transport).t Gen_server.t ->
     state ->
-    Scow_server_msg.Make(Log)(Transport).t ->
+    Scow_server_msg.Make(Log)(Transport).op ->
     (state, unit) Deferred.Result.t
 
 end
