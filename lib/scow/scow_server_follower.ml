@@ -5,13 +5,13 @@ module Make =
   functor (Statem : Scow_statem.T) ->
     functor (Log : Scow_log.T) ->
       functor (Vote_store : Scow_vote_store.T) ->
-        functor (Transport : Scow_transport.T) ->
+        functor (Transport : Scow_transport.T with type Node.t = Vote_store.node) ->
 struct
-  type state = Scow_server_state.Make(Statem)(Log)(Transport).t
+  type state = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport).t
 
   module Msg   = Scow_server_msg.Make(Log)(Transport)
   module TMsg  = Scow_transport.Msg
-  module State = Scow_server_state.Make(Statem)(Log)(Transport)
+  module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
   let store_vote node =
     failwith "nyi"
@@ -44,7 +44,7 @@ struct
           ~term:state.State.current_term
           ~granted:true
         >>=? fun () ->
-        store_vote node
+        Vote_store.store state.State.vote_store (Some node)
         >>=? fun () ->
         Deferred.return (Ok state)
       end
