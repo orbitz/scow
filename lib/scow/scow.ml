@@ -5,7 +5,7 @@ module Make =
   functor (Statem : Scow_statem.T) ->
     functor (Log : Scow_log.T) ->
       functor (Vote_store : Scow_vote_store.T) ->
-        functor (Transport : Scow_transport.T) ->
+        functor (Transport : Scow_transport.T with type Node.t = Vote_store.node) ->
 struct
   module Init_args = struct
     type t = { me                       : Transport.Node.t
@@ -13,12 +13,13 @@ struct
              ; statem                   : Statem.t
              ; transport                : Transport.t
              ; log                      : Log.t
+             ; vote_store               : Vote_store.t
              ; max_parallel_replication : int
              }
   end
 
   module Msg       = Scow_server_msg.Make(Log)(Transport)
-  module State     = Scow_server_state.Make(Statem)(Log)(Transport)
+  module State     = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
   module Candidate = Scow_server_candidate.Make(Statem)(Log)(Vote_store)(Transport)
   module Follower  = Scow_server_follower.Make(Statem)(Log)(Vote_store)(Transport)
@@ -46,18 +47,21 @@ struct
     let init self init_args =
       start_transport_listener self init_args.Init_args.transport;
       ignore (Gen_server.send self (Msg.Op Msg.Election_timeout));
+      Vote_store.load init_args.Init_args.vote_store
+      >>=? fun voted_for ->
       Deferred.return
         State.(Ok { me           = init_args.Init_args.me
                   ; nodes        = init_args.Init_args.nodes
                   ; statem       = init_args.Init_args.statem
                   ; transport    = init_args.Init_args.transport
                   ; log          = init_args.Init_args.log
+                  ; vote_store   = init_args.Init_args.vote_store
                   ; max_par_repl = init_args.Init_args.max_parallel_replication
                   ; current_term = Scow_term.zero ()
                   ; commit_idx   = Scow_log_index.zero ()
                   ; last_applied = Scow_log_index.zero ()
                   ; leader       = None
-                  ; voted_for    = None
+                  ; voted_for    = voted_for
                   ; handler      = Follower.handle_call
                   ; states       = { States.follower  = Follower.handle_call
                                    ;        candidate = Candidate.handle_call
