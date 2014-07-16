@@ -1,0 +1,6 @@
+name="scow"
+version="1.0.0"
+description="Raft Implementation"
+requires="core,async,gen_server"
+archive(byte)="scow.cma"
+archive(native)="scow.cmxa"
