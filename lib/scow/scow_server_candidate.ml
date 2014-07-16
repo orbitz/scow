@@ -16,7 +16,7 @@ struct
   let handle_recv_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
     if Scow_term.compare state.State.current_term append_entries.Ae.term <= 0 then begin
-      let state = State.({ state with handler = state.states.States.follower }) in
+      let state = State.set_state_follower state in
       state.State.handler
         self
         state
@@ -31,9 +31,6 @@ struct
       >>=? fun () ->
       Deferred.return (Ok state)
     end
-
-  let schedule_heartbeat self state =
-    failwith "nyi"
 
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
@@ -51,10 +48,14 @@ struct
       Ivar.fill ret (Error `Not_master);
       Deferred.return (Ok state)
     end
-    | Msg.Election_timeout ->
-      let state = State.({ state with handler = state.states.States.follower }) in
-      ignore (schedule_heartbeat self state);
+    | Msg.Election_timeout -> begin
+      let state =
+        state
+        |> State.set_state_follower
+        |> State.set_random_timeout self
+      in
       Deferred.return (Ok state)
+    end
 
 end
 
