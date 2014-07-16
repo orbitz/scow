@@ -1,3 +1,4 @@
+open Core.Std
 open Async.Std
 
 module Make :
@@ -36,5 +37,17 @@ sig
            ; voted_for    : Transport.Node.t option
            ; handler      : t handler
            ; states       : t States.t
+           ; timer        : Scow_timer.t option
+           ; timeout      : Time.Span.t
+           ; timeout_rand : Time.Span.t
            }
+
+
+  val set_timeout        : msg Gen_server.t -> t -> t
+  val set_random_timeout : msg Gen_server.t -> t -> t
+  val cancel_timeout     : t -> t
+
+  val set_state_follower  : t -> t
+  val set_state_candidate : t -> t
+  val set_state_leader    : t -> t
 end

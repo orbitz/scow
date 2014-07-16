@@ -1,3 +1,4 @@
+open Core.Std
 open Async.Std
 
 module Make =
@@ -6,8 +7,10 @@ module Make =
       functor (Vote_store : Scow_vote_store.T) ->
         functor (Transport : Scow_transport.T) ->
 struct
-  type msg = Scow_server_msg.Make(Log)(Transport).t
-  type op  = Scow_server_msg.Make(Log)(Transport).op
+  module Msg = Scow_server_msg.Make(Log)(Transport)
+
+  type msg = Msg.t
+  type op  = Msg.op
 
   type 's handler =
       msg Gen_server.t ->
@@ -36,5 +39,41 @@ struct
            ; voted_for    : Transport.Node.t option
            ; handler      : t handler
            ; states       : t States.t
+           ; timer        : Scow_timer.t option
+           ; timeout      : Time.Span.t
+           ; timeout_rand : Time.Span.t
            }
+
+  let create_timer timeout server t =
+    let f =
+      fun () ->
+        ignore (Gen_server.send server (Msg.Op Msg.Election_timeout))
+    in
+    { t with timer = Some (Scow_timer.create timeout f) }
+
+  let set_timeout server t =
+    create_timer t.timeout server t
+
+  let set_random_timeout server t =
+    let rand_diff = Random.float (Time.Span.to_ms t.timeout_rand) in
+    let timeout   = Time.Span.of_ms (Time.Span.to_ms t.timeout +. rand_diff) in
+    create_timer timeout server t
+
+  let cancel_timeout t =
+    match t.timer with
+      | Some timer -> begin
+        Scow_timer.cancel timer;
+        { t with timer = None }
+      end
+      | None ->
+        t
+
+  let set_state_follower t =
+    { t with handler = t.states.States.follower }
+
+  let set_state_candidate t =
+    { t with handler = t.states.States.candidate }
+
+  let set_state_leader t =
+    { t with handler = t.states.States.leader }
 end
