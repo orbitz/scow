@@ -60,5 +60,7 @@ struct
     end
     | Msg.Election_timeout ->
       Deferred.return (Ok state)
+    | _ ->
+      Deferred.return (Ok state)
 end
 
