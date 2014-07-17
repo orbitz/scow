@@ -25,48 +25,58 @@ struct
                 }
   end
 
-  type t = { me           : Transport.Node.t
-           ; nodes        : Transport.Node.t list
-           ; statem       : Statem.t
-           ; transport    : Transport.t
-           ; log          : Log.t
-           ; vote_store   : Vote_store.t
-           ; max_par_repl : int
-           ; current_term : Scow_term.t
-           ; commit_idx   : Scow_log_index.t
-           ; last_applied : Scow_log_index.t
-           ; leader       : Transport.Node.t option
-           ; voted_for    : Transport.Node.t option
-           ; handler      : t handler
-           ; states       : t States.t
-           ; timer        : Scow_timer.t option
-           ; timeout      : Time.Span.t
-           ; timeout_rand : Time.Span.t
+  type t = { me              : Transport.Node.t
+           ; nodes           : Transport.Node.t list
+           ; statem          : Statem.t
+           ; transport       : Transport.t
+           ; log             : Log.t
+           ; vote_store      : Vote_store.t
+           ; max_par_repl    : int
+           ; current_term    : Scow_term.t
+           ; commit_idx      : Scow_log_index.t
+           ; last_applied    : Scow_log_index.t
+           ; leader          : Transport.Node.t option
+           ; voted_for       : Transport.Node.t option
+           ; votes_for_me    : Transport.Node.t list
+           ; handler         : t handler
+           ; states          : t States.t
+           ; election_timer  : Scow_timer.t option
+           ; heartbeat_timer : Scow_timer.t option
+           ; timeout         : Time.Span.t
+           ; timeout_rand    : Time.Span.t
            }
 
-  let create_timer timeout server t =
+  let create_timer timeout server =
     let f =
       fun () ->
         ignore (Gen_server.send server (Msg.Op Msg.Election_timeout))
     in
-    { t with timer = Some (Scow_timer.create timeout f) }
+    Scow_timer.create timeout f
 
-  let set_timeout server t =
-    create_timer t.timeout server t
+  let set_heartbeat_timeout server t =
+    { t with heartbeat_timer = Some (create_timer t.timeout server) }
 
-  let set_random_timeout server t =
+  let set_election_timeout server t =
     let rand_diff = Random.float (Time.Span.to_ms t.timeout_rand) in
     let timeout   = Time.Span.of_ms (Time.Span.to_ms t.timeout +. rand_diff) in
-    create_timer timeout server t
+    { t with election_timer = Some (create_timer timeout server) }
 
-  let cancel_timeout t =
-    match t.timer with
+  let cancel_timeout timer_opt =
+    match timer_opt with
       | Some timer -> begin
         Scow_timer.cancel timer;
-        { t with timer = None }
+        ()
       end
       | None ->
-        t
+        ()
+
+  let cancel_election_timeout t =
+    cancel_timeout t.election_timer;
+    { t with election_timer = None }
+
+  let cancel_heartbeat_timeout t =
+    cancel_timeout t.heartbeat_timer;
+    { t with heartbeat_timer = None }
 
   let set_state_follower t =
     { t with handler = t.states.States.follower }
@@ -76,4 +86,12 @@ struct
 
   let set_state_leader t =
     { t with handler = t.states.States.leader }
+
+  let record_vote node t =
+    { t with votes_for_me = node::t.votes_for_me }
+
+  (* Fix this to be a set *)
+  let count_votes t = List.length t.votes_for_me
+
+  let clear_votes t = { t with votes_for_me = [] }
 end

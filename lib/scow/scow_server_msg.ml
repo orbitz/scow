@@ -7,8 +7,10 @@ module Make = functor (Log : Scow_log.T) -> functor (Transport : Scow_transport.
 
   type op =
     | Election_timeout
+    | Heartbeat
     | Rpc              of rpc
     | Append_entries   of (append_entries Ivar.t * Log.elt list)
+    | Received_vote    of (Transport.Node.t * bool)
 
   type getter =
     | Get_nodes        of Transport.Node.t list Ivar.t

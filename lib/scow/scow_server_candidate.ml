@@ -13,7 +13,7 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
-  let handle_recv_append_entries self state (node, append_entries, ctx) =
+  let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
     if Scow_term.compare state.State.current_term append_entries.Ae.term <= 0 then begin
       let state = State.set_state_follower state in
@@ -32,30 +32,61 @@ struct
       Deferred.return (Ok state)
     end
 
+  let handle_rpc_request_vote _self state (node, ctx) =
+    Transport.resp_request_vote
+      state.State.transport
+      ctx
+      ~term:state.State.current_term
+      ~granted:false
+    >>=? fun () ->
+    Deferred.return (Ok state)
+
+  let handle_append_entries _self state ret =
+    Ivar.fill ret (Error `Not_master);
+    Deferred.return (Ok state)
+
+  let transition_to_leader self state =
+    let state =
+      state
+      |> State.set_state_leader
+      |> State.cancel_election_timeout
+      |> State.cancel_heartbeat_timeout
+    in
+    state.State.handler
+      self
+      state
+      Msg.Heartbeat
+
+  let handle_received_yes_vote self state node =
+    let state = State.record_vote node state in
+    if State.count_votes state > (List.length state.State.nodes / 2) then begin
+      transition_to_leader self state
+    end
+    else
+      Deferred.return (Ok state)
+
+  let handle_election_timeout self state =
+    state
+    |> State.set_state_follower
+    |> State.set_election_timeout self
+    |> Result.return
+    |> Deferred.return
+
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
-      handle_recv_append_entries self state (node, append_entries, ctx)
-    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) -> begin
-      Transport.resp_request_vote
-        state.State.transport
-        ctx
-        ~term:state.State.current_term
-        ~granted:false
-      >>=? fun () ->
+      handle_rpc_append_entries self state (node, append_entries, ctx)
+    | Msg.Rpc (TMsg.Request_vote (node, _request_vote), ctx) ->
+      handle_rpc_request_vote self state (node, ctx)
+    | Msg.Append_entries (ret, _) ->
+      handle_append_entries self state ret
+    | Msg.Received_vote (node, true) ->
+      handle_received_yes_vote self state node
+    | Msg.Received_vote (_node, false) ->
       Deferred.return (Ok state)
-    end
-    | Msg.Append_entries (ret, _) -> begin
-      Ivar.fill ret (Error `Not_master);
+    | Msg.Election_timeout ->
+      handle_election_timeout self state
+    | Msg.Heartbeat ->
       Deferred.return (Ok state)
-    end
-    | Msg.Election_timeout -> begin
-      let state =
-        state
-        |> State.set_state_follower
-        |> State.set_random_timeout self
-      in
-      Deferred.return (Ok state)
-    end
 
 end
 
