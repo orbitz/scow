@@ -65,9 +65,10 @@ struct
     else
       Deferred.return (Ok state)
 
-  let handle_election_timeout self state =
+  let handle_heartbeat_timeout self state =
     state
     |> State.set_state_follower
+    |> State.clear_votes
     |> State.set_election_timeout self
     |> Result.return
     |> Deferred.return
@@ -84,9 +85,9 @@ struct
     | Msg.Received_vote (_node, false) ->
       Deferred.return (Ok state)
     | Msg.Election_timeout ->
-      handle_election_timeout self state
-    | Msg.Heartbeat ->
       Deferred.return (Ok state)
+    | Msg.Heartbeat ->
+      handle_heartbeat_timeout self state
 
 end
 
