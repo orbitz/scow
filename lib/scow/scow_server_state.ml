@@ -90,8 +90,9 @@ struct
   let record_vote node t =
     { t with votes_for_me = node::t.votes_for_me }
 
-  (* Fix this to be a set *)
-  let count_votes t = List.length t.votes_for_me
+  let count_votes t =
+    List.length
+      (List.dedup ~compare:Transport.Node.compare t.votes_for_me)
 
   let clear_votes t = { t with votes_for_me = [] }
 end
