@@ -65,6 +65,10 @@ struct
     else
       Deferred.return (Ok state)
 
+  let handle_received_no_vote _self state term =
+    (* Unclear what to do in this case *)
+    Deferred.return (Ok state)
+
   let handle_heartbeat_timeout self state =
     state
     |> State.set_state_follower
@@ -80,10 +84,10 @@ struct
       handle_rpc_request_vote self state (node, ctx)
     | Msg.Append_entries (ret, _) ->
       handle_append_entries self state ret
-    | Msg.Received_vote (node, true) ->
+    | Msg.Received_vote (node, _term, true) ->
       handle_received_yes_vote self state node
-    | Msg.Received_vote (_node, false) ->
-      Deferred.return (Ok state)
+    | Msg.Received_vote (_node, term, false) ->
+      handle_received_no_vote self state term
     | Msg.Election_timeout ->
       Deferred.return (Ok state)
     | Msg.Heartbeat ->
