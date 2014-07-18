@@ -1,6 +1,6 @@
 open Async.Std
 
-module type T = sig
+module type S = sig
   type elt
   type t
 
