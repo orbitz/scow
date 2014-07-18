@@ -4,7 +4,9 @@ module Make :
   functor (Statem : Scow_statem.T) ->
     functor (Log : Scow_log.T) ->
       functor (Vote_store : Scow_vote_store.T) ->
-        functor (Transport : Scow_transport.T  with type Node.t = Vote_store.node) ->
+        functor (Transport : Scow_transport.T
+                 with type Node.t = Vote_store.node
+                 and  type elt    = Log.elt) ->
 sig
   type t
 

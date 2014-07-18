@@ -4,9 +4,10 @@ module type T = sig
   type elt
   type t
 
-  val append_log :
+  val append :
     t ->
-    'elt Scow_rpc.Append_entries.t ->
+    Scow_term.t ->
+    elt list ->
     (unit, [> `Append_failed ]) Deferred.Result.t
 
   val get_entry :
