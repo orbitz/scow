@@ -6,7 +6,7 @@ module Msg = struct
     | Request_vote   of ('n * Scow_rpc.Request_vote.t)
 end
 
-module type T = sig
+module type S = sig
   type ctx
   type elt
   type t

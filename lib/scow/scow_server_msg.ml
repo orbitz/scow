@@ -1,7 +1,7 @@
 open Core.Std
 open Async.Std
 
-module Make = functor (Log : Scow_log.T) -> functor (Transport : Scow_transport.T) -> struct
+module Make = functor (Log : Scow_log.S) -> functor (Transport : Scow_transport.S) -> struct
   type append_entries = (unit, [ `Not_master | `Append_failed ] as 'e) Result.t
   type rpc = (Transport.Node.t, Transport.elt) Scow_transport.Msg.t * Transport.ctx
 

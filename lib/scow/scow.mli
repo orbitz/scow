@@ -1,10 +1,10 @@
 open Async.Std
 
 module Make :
-  functor (Statem : Scow_statem.T) ->
-    functor (Log : Scow_log.T) ->
-      functor (Vote_store : Scow_vote_store.T) ->
-        functor (Transport : Scow_transport.T
+  functor (Statem : Scow_statem.S) ->
+    functor (Log : Scow_log.S) ->
+      functor (Vote_store : Scow_vote_store.S) ->
+        functor (Transport : Scow_transport.S
                  with type Node.t = Vote_store.node
                  and  type elt    = Log.elt) ->
 sig
