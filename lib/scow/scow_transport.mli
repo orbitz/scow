@@ -16,21 +16,21 @@ module type S = sig
     val compare : t -> t -> int
   end
 
-  val listen : t -> (((Node.t, elt) Msg.t * ctx), unit) Deferred.Result.t
+  val listen : t -> (((Node.t, elt) Msg.t * ctx), [> `Transport_error ]) Deferred.Result.t
 
   val resp_append_entries :
     t ->
     ctx ->
     term:Scow_term.t ->
     success:bool ->
-    (unit, unit) Deferred.Result.t
+    (unit, [> `Transport_error ]) Deferred.Result.t
 
   val resp_request_vote :
     t ->
     ctx ->
     term:Scow_term.t ->
     granted:bool ->
-    (unit, unit) Deferred.Result.t
+    (unit, [> `Transport_error ]) Deferred.Result.t
 
   val request_vote :
     t ->
@@ -38,5 +38,9 @@ module type S = sig
     Scow_rpc.Request_vote.t ->
     ((Scow_term.t * bool), [> `Transport_error ]) Deferred.Result.t
 
-  val append_entries : t -> Node.t -> unit -> ((Scow_term.t * bool), unit) Deferred.Result.t
+  val append_entries :
+    t ->
+    Node.t ->
+    unit ->
+    ((Scow_term.t * bool), [> `Transport_error ]) Deferred.Result.t
 end
