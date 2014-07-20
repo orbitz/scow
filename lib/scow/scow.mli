@@ -1,3 +1,4 @@
+open Core.Std
 open Async.Std
 
 module Make :
@@ -18,6 +19,8 @@ sig
              ; log                      : Log.t
              ; vote_store               : Vote_store.t
              ; max_parallel_replication : int
+             ; timeout                  : Time.Span.t
+             ; timeout_rand             : Time.Span.t
              }
   end
 
