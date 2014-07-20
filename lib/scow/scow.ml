@@ -17,6 +17,8 @@ struct
              ; log                      : Log.t
              ; vote_store               : Vote_store.t
              ; max_parallel_replication : int
+             ; timeout                  : Time.Span.t
+             ; timeout_rand             : Time.Span.t
              }
   end
 
@@ -72,8 +74,8 @@ struct
                                    }
                ; election_timer  = None
                ; heartbeat_timer = None
-               ; timeout         = failwith "nyi"
-               ; timeout_rand    = failwith "nyi"
+               ; timeout         = init_args.Init_args.timeout
+               ; timeout_rand    = init_args.Init_args.timeout_rand
                })
       in
       (* Create timeout to kick off elections *)
