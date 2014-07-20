@@ -40,7 +40,7 @@ struct
           | Ok _ ->
             transport_listener_loop server transport
           | Error _ ->
-            Deferred.return (Error ())
+            Deferred.return (Error `Transport_error)
       end
 
     let start_transport_listener server transport =
@@ -94,8 +94,8 @@ struct
         Deferred.return (Resp.Ok state)
       end
 
-    let terminate _reason state =
-      failwith "nyi"
+    let terminate _reason _state =
+      Deferred.unit
 
     let callbacks = { Gen_server.Server.init; handle_call; terminate }
   end

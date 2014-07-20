@@ -13,6 +13,12 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
+  let ignore_error deferred =
+    deferred
+    >>= function
+      | Ok anything -> Deferred.return (Ok anything)
+      | Error _     -> Deferred.return (Error ())
+
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
     if Scow_term.compare state.State.current_term append_entries.Ae.term <= 0 then begin
@@ -21,6 +27,10 @@ struct
         self
         state
         (Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx))
+      (* TODO Probably don't want to do this *)
+      >>= function
+        | Ok state -> Deferred.return (Ok state)
+        | Error () -> Deferred.return (Ok state)
     end
     else begin
       Transport.resp_append_entries
@@ -79,19 +89,19 @@ struct
 
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
-      handle_rpc_append_entries self state (node, append_entries, ctx)
+      ignore_error (handle_rpc_append_entries self state (node, append_entries, ctx))
     | Msg.Rpc (TMsg.Request_vote (node, _request_vote), ctx) ->
-      handle_rpc_request_vote self state (node, ctx)
+      ignore_error (handle_rpc_request_vote self state (node, ctx))
     | Msg.Append_entries (ret, _) ->
-      handle_append_entries self state ret
+      ignore_error (handle_append_entries self state ret)
     | Msg.Received_vote (node, _term, true) ->
-      handle_received_yes_vote self state node
+      ignore_error (handle_received_yes_vote self state node)
     | Msg.Received_vote (_node, term, false) ->
-      handle_received_no_vote self state term
+      ignore_error (handle_received_no_vote self state term)
     | Msg.Election_timeout ->
       Deferred.return (Ok state)
     | Msg.Heartbeat ->
-      handle_heartbeat_timeout self state
+      ignore_error (handle_heartbeat_timeout self state)
 
 end
 

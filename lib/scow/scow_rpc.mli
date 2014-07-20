@@ -1,9 +1,9 @@
 module Append_entries : sig
-  type 'elt t = { term          : Scow_term.t
-                ; prev_log_idx  : Scow_log_index.t
-                ; prev_log_term : Scow_term.t
-                ; leader_commit : Scow_log_index.t
-                ; entries       : 'elt list
+  type 'elt t = { term           : Scow_term.t
+                ; prev_log_index : Scow_log_index.t
+                ; prev_log_term  : Scow_term.t
+                ; leader_commit  : Scow_log_index.t
+                ; entries        : 'elt list
                 }
 end
 
