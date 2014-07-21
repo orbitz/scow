@@ -27,10 +27,6 @@ struct
         self
         state
         (Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx))
-      (* TODO Probably don't want to do this *)
-      >>= function
-        | Ok state -> Deferred.return (Ok state)
-        | Error () -> Deferred.return (Ok state)
     end
     else begin
       Transport.resp_append_entries
@@ -38,24 +34,42 @@ struct
         ctx
         ~term:state.State.current_term
         ~success:false
-      >>=? fun () ->
+      >>= fun _ ->
       Deferred.return (Ok state)
     end
 
-  let handle_rpc_request_vote _self state (node, ctx) =
-    Transport.resp_request_vote
-      state.State.transport
-      ctx
-      ~term:state.State.current_term
-      ~granted:false
-    >>=? fun () ->
-    Deferred.return (Ok state)
+  let handle_rpc_request_vote self state (node, request_vote, ctx) =
+    let module Rv = Scow_rpc.Request_vote in
+    if Scow_term.compare state.State.current_term request_vote.Rv.term < 0 then
+      let state =
+        state
+        |> State.set_state_follower
+        |> State.cancel_election_timeout
+        |> State.cancel_heartbeat_timeout
+      in
+      state.State.handler
+        self
+        state
+        (Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx))
+    else begin
+      Transport.resp_request_vote
+        state.State.transport
+        ctx
+        ~term:state.State.current_term
+        ~granted:false
+      >>= fun _ ->
+      Deferred.return (Ok state)
+    end
 
   let handle_append_entries _self state ret =
     Ivar.fill ret (Error `Not_master);
     Deferred.return (Ok state)
 
   let transition_to_leader self state =
+    (*
+     * Turn self into leader and then kick off a
+     * heartbeat to tell the world
+     *)
     let state =
       state
       |> State.set_state_leader
@@ -90,8 +104,8 @@ struct
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
       ignore_error (handle_rpc_append_entries self state (node, append_entries, ctx))
-    | Msg.Rpc (TMsg.Request_vote (node, _request_vote), ctx) ->
-      ignore_error (handle_rpc_request_vote self state (node, ctx))
+    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
+      ignore_error (handle_rpc_request_vote self state (node, request_vote, ctx))
     | Msg.Append_entries (ret, _) ->
       ignore_error (handle_append_entries self state ret)
     | Msg.Received_vote (node, _term, true) ->
