@@ -3,7 +3,7 @@ open Async.Std
 
 module Make =
   functor (Statem : Scow_statem.S) ->
-    functor (Log : Scow_log.S) ->
+    functor (Log : Scow_log.S with type elt = Statem.op) ->
       functor (Vote_store : Scow_vote_store.S) ->
         functor (Transport : Scow_transport.S
                  with type Node.t = Vote_store.node
@@ -89,12 +89,27 @@ struct
     >>=? fun () ->
     Deferred.return (Ok state)
 
+  let rec apply_state_machine state = function
+    | leader_commit when state.State.commit_idx < leader_commit -> begin
+      let commit_idx = Scow_log_index.succ state.State.commit_idx in
+      Log.get_entry state.State.log commit_idx
+      >>=? fun (_term, elt) ->
+      Statem.apply state.State.statem elt
+      >>= fun _ ->
+      let state = { state with State.commit_idx = commit_idx } in
+      apply_state_machine state leader_commit
+    end
+    | _ ->
+      Deferred.return (Ok state)
+
   let apply_rpc_append_entries self state (node, append_entries, ctx) =
     let test_and_do () =
       let module Ae = Scow_rpc.Append_entries in
       can_apply_log state append_entries
       >>=? fun entries ->
       do_append_entries state ctx append_entries.Ae.term entries
+      >>=? fun state ->
+      apply_state_machine state append_entries.Ae.leader_commit
     in
     test_and_do ()
     >>= function
