@@ -5,7 +5,7 @@ module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S) ->
       functor (Vote_store : Scow_vote_store.S) ->
-        functor (Transport : Scow_transport.S) ->
+        functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
 struct
   module Msg = Scow_server_msg.Make(Log)(Transport)
 
@@ -45,6 +45,72 @@ struct
            ; timeout         : Time.Span.t
            ; timeout_rand    : Time.Span.t
            }
+
+  module Init_args = struct
+    type t_ = { me           : Transport.Node.t
+              ; nodes        : Transport.Node.t list
+              ; statem       : Statem.t
+              ; transport    : Transport.t
+              ; log          : Log.t
+              ; vote_store   : Vote_store.t
+              ; max_par_repl : int
+              ; timeout      : Time.Span.t
+              ; timeout_rand : Time.Span.t
+              ; follower     : t handler
+              ; candidate    : t handler
+              ; leader       : t handler
+              }
+
+    type t = t_
+  end
+
+  let create init_args =
+    let module Ia = Init_args in
+    Vote_store.load init_args.Ia.vote_store
+    >>=? fun voted_for ->
+    Deferred.return
+      (Ok { me              = init_args.Ia.me
+          ; nodes           = init_args.Ia.nodes
+          ; statem          = init_args.Ia.statem
+          ; transport       = init_args.Ia.transport
+          ; log             = init_args.Ia.log
+          ; vote_store      = init_args.Ia.vote_store
+          ; max_par_repl    = init_args.Ia.max_par_repl
+          ; current_term    = Scow_term.zero ()
+          ; commit_idx      = Scow_log_index.zero ()
+          ; last_applied    = Scow_log_index.zero ()
+          ; leader          = None
+          ; voted_for       = voted_for
+          ; votes_for_me    = []
+          ; handler         = init_args.Ia.follower
+          ; states          = { States.follower  = init_args.Ia.follower
+                              ;        candidate = init_args.Ia.candidate
+                              ;        leader    = init_args.Ia.leader
+                              }
+          ; election_timer  = None
+          ; heartbeat_timer = None
+          ; timeout         = init_args.Ia.timeout
+          ; timeout_rand    = init_args.Ia.timeout_rand
+          })
+
+  let handler t = t.handler
+
+  let current_term t = t.current_term
+  let set_current_term term t = { t with current_term = term }
+
+  let transport t = t.transport
+  let log t = t.log
+  let vote_store t = t.vote_store
+  let statem t = t.statem
+
+  let commit_idx t = t.commit_idx
+  let set_commit_idx commit_idx t = { t with commit_idx }
+
+  let me t = t.me
+  let nodes t = t.nodes
+
+  let voted_for t = t.voted_for
+  let set_voted_for voted_for t = { t with voted_for }
 
   let create_timer timeout server =
     let f =
