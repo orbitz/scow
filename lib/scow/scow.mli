@@ -24,7 +24,7 @@ sig
              }
   end
 
-  val start        : Init_args.t -> (t, unit) Deferred.Result.t
+  val start        : Init_args.t -> (t, [> `Invalid_vote_store | `Unknown]) Deferred.Result.t
   val stop         : t -> unit Deferred.t
 
   val append_log   :

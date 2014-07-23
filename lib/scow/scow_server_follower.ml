@@ -23,7 +23,7 @@ struct
 
   let is_valid_term state append_entries =
     let module Ae    = Scow_rpc.Append_entries in
-    let current_term = state.State.current_term in
+    let current_term = State.current_term state in
     let ae_term      = append_entries.Ae.term in
     if Scow_term.compare current_term ae_term >= 0 then
       Deferred.return (Ok ())
@@ -34,7 +34,7 @@ struct
     let module Ae      = Scow_rpc.Append_entries in
     let prev_log_index = append_entries.Ae.prev_log_index in
     let prev_log_term  = append_entries.Ae.prev_log_term in
-    Log.get_term state.State.log prev_log_index
+    Log.get_term (State.log state) prev_log_index
     >>=? function
       | term when Scow_term.is_equal term prev_log_term ->
         Deferred.return (Ok ())
@@ -64,7 +64,7 @@ struct
   let delete_if_not_equal state append_entries =
     let module Ae = Scow_rpc.Append_entries in
     let log_index = Scow_log_index.succ (append_entries.Ae.prev_log_index) in
-    check_entries_match state.State.log log_index append_entries.Ae.entries
+    check_entries_match (State.log state) log_index append_entries.Ae.entries
 
   let can_apply_log state append_entries =
     (*
@@ -78,25 +78,25 @@ struct
     delete_if_not_equal state append_entries
 
   let do_append_entries state ctx term entries =
-    let state = { state with State.current_term = term } in
-    Log.append state.State.log term entries
+    let state = State.set_current_term term state in
+    Log.append (State.log state) term entries
     >>=? fun () ->
     Transport.resp_append_entries
-      state.State.transport
+      (State.transport state)
       ctx
-      ~term:state.State.current_term
+      ~term:(State.current_term state)
       ~success:true
     >>=? fun () ->
     Deferred.return (Ok state)
 
   let rec apply_state_machine state = function
-    | leader_commit when state.State.commit_idx < leader_commit -> begin
-      let commit_idx = Scow_log_index.succ state.State.commit_idx in
-      Log.get_entry state.State.log commit_idx
+    | leader_commit when (State.commit_idx state) < leader_commit -> begin
+      let commit_idx = Scow_log_index.succ (State.commit_idx state) in
+      Log.get_entry (State.log state) commit_idx
       >>=? fun (_term, elt) ->
-      Statem.apply state.State.statem elt
+      Statem.apply (State.statem state) elt
       >>= fun _ ->
-      let state = { state with State.commit_idx = commit_idx } in
+      let state = State.set_commit_idx commit_idx state in
       apply_state_machine state leader_commit
     end
     | _ ->
@@ -122,9 +122,9 @@ struct
       | Error `Term_less_than_current
       | Error `Prev_term_does_not_match -> begin
         Transport.resp_append_entries
-          state.State.transport
+          (State.transport state)
           ctx
-          ~term:state.State.current_term
+          ~term:(State.current_term state)
           ~success:false
         >>=? fun () ->
         Deferred.return (Ok state)
@@ -140,25 +140,25 @@ struct
     apply_rpc_append_entries self state append_entries_data
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
-    match state.State.voted_for with
+    match State.voted_for state with
       | Some _ -> begin
         Transport.resp_request_vote
-          state.State.transport
+          (State.transport state)
           ctx
-          ~term:state.State.current_term
+          ~term:(State.current_term state)
           ~granted:false
         >>=? fun () ->
         Deferred.return (Ok state)
       end
       | None -> begin
-        let state = State.({ state with voted_for = Some node }) in
+        let state = State.set_voted_for (Some node) state in
         Transport.resp_request_vote
-          state.State.transport
+          (State.transport state)
           ctx
-          ~term:state.State.current_term
+          ~term:(State.current_term state)
           ~granted:true
         >>=? fun () ->
-        Vote_store.store state.State.vote_store (Some node)
+        Vote_store.store (State.vote_store state) (Some node)
         >>=? fun () ->
         Deferred.return (Ok state)
       end
@@ -182,20 +182,20 @@ struct
       nodes
 
   let handle_timeout self state =
-    let term = Scow_term.succ state.State.current_term in
+    let term = Scow_term.succ (State.current_term state) in
     let vote_request =
       Scow_rpc.({ Request_vote.term           = term
                 ;              last_log_index = failwith "nyi"
                 ;              last_log_term  = failwith "nyi"
                 })
     in
-    request_votes self vote_request state.State.transport state.State.nodes;
+    request_votes self vote_request (State.transport state) (State.nodes state);
     state
     |> State.set_state_candidate
-    |> fun state -> { state with State.current_term = term }
+    |> State.set_current_term term
     |> State.set_heartbeat_timeout self
     |> State.clear_votes
-    |> State.record_vote state.State.me
+    |> State.record_vote (State.me state)
     |> Result.return
     |> Deferred.return
 
