@@ -29,7 +29,7 @@ struct
   module Candidate = Scow_server_candidate.Make(Statem)(Log)(Vote_store)(Transport)
   module Leader    = Scow_server_leader.Make(Statem)(Log)(Vote_store)(Transport)
 
-  type t = Msg.t Gen_server.t
+  type t = Statem.ret Msg.t Gen_server.t
 
   module Server = struct
     module Resp = Gen_server.Response
@@ -121,7 +121,7 @@ struct
     >>=? fun _ ->
     Ivar.read ret
     >>= function
-      | Ok ()                -> Deferred.return (Ok ())
+      | Ok result            -> Deferred.return (Ok result)
       | Error `Not_master    -> Deferred.return (Error `Not_master)
       | Error `Append_failed -> Deferred.return (Error `Append_failed)
 

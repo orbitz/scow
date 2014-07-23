@@ -9,8 +9,8 @@ module Make =
 struct
   module Msg = Scow_server_msg.Make(Log)(Transport)
 
-  type msg = Msg.t
-  type op  = Msg.op
+  type msg = Statem.ret Msg.t
+  type op  = Statem.ret Msg.op
 
   type 's handler =
       msg Gen_server.t ->

@@ -11,9 +11,9 @@ sig
   type state = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport).t
 
   val handle_call :
-    Scow_server_msg.Make(Log)(Transport).t Gen_server.t ->
+    Statem.ret Scow_server_msg.Make(Log)(Transport).t Gen_server.t ->
     state ->
-    Scow_server_msg.Make(Log)(Transport).op ->
+    Statem.ret Scow_server_msg.Make(Log)(Transport).op ->
     (state, unit) Deferred.Result.t
 
 end

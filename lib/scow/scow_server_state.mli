@@ -7,8 +7,8 @@ module Make :
       functor (Vote_store : Scow_vote_store.S) ->
         functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
 sig
-  type msg = Scow_server_msg.Make(Log)(Transport).t
-  type op  = Scow_server_msg.Make(Log)(Transport).op
+  type msg = Statem.ret Scow_server_msg.Make(Log)(Transport).t
+  type op  = Statem.ret Scow_server_msg.Make(Log)(Transport).op
 
   type 's handler =
       msg Gen_server.t ->
