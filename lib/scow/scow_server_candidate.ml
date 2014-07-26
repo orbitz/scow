@@ -120,7 +120,7 @@ struct
     | Msg.Heartbeat ->
       ignore_error (handle_heartbeat_timeout self state)
     | Msg.Append_entries_resp _ ->
-      failwith "nyi"
+      Deferred.return (Ok state)
 
 end
 

@@ -212,6 +212,6 @@ struct
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
     | Msg.Append_entries_resp _ ->
-      failwith "nyi"
+      Deferred.return (Ok state)
 end
 
