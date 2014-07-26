@@ -41,6 +41,6 @@ module type S = sig
   val append_entries :
     t ->
     Node.t ->
-    unit ->
+    elt Scow_rpc.Append_entries.t ->
     ((Scow_term.t * bool), [> `Transport_error ]) Deferred.Result.t
 end

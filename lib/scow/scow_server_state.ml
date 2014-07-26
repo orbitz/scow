@@ -7,10 +7,10 @@ module Make =
       functor (Vote_store : Scow_vote_store.S) ->
         functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
 struct
-  module Msg = Scow_server_msg.Make(Log)(Transport)
+  module Msg = Scow_server_msg.Make(Statem)(Log)(Transport)
 
-  type msg = Statem.ret Msg.t
-  type op  = Statem.ret Msg.op
+  type msg = Msg.t
+  type op  = Msg.op
 
   type 's handler =
       msg Gen_server.t ->
@@ -24,6 +24,23 @@ struct
                 ; leader    : 's handler
                 }
   end
+
+  module Append_entry = struct
+    type errors = [ `Not_master | `Append_failed ]
+    type ret = (Statem.ret, errors) Deferred.Result.t
+    type t = { log_index : Scow_log_index.t
+             ; op        : Statem.op
+             ; ret       : ret
+             }
+  end
+
+  module Node_map = Map.Make(
+    struct
+      type t        = Transport.Node.t
+      let compare   = Transport.Node.compare
+      let t_of_sexp = failwith "nyi"
+      let sexp_of_t = failwith "nyi"
+    end)
 
   type t = { me              : Transport.Node.t
            ; nodes           : Transport.Node.t list
@@ -44,6 +61,9 @@ struct
            ; heartbeat_timer : Scow_timer.t option
            ; timeout         : Time.Span.t
            ; timeout_rand    : Time.Span.t
+           ; next_idx        : Scow_log_index.t Node_map.t
+           ; match_idx       : Scow_log_index.t Node_map.t
+           ; append_entries  : Append_entry.t list
            }
 
   module Init_args = struct
@@ -91,6 +111,9 @@ struct
           ; heartbeat_timer = None
           ; timeout         = init_args.Ia.timeout
           ; timeout_rand    = init_args.Ia.timeout_rand
+          ; next_idx        = Node_map.empty
+          ; match_idx       = Node_map.empty
+          ; append_entries  = []
           })
 
   let handler t = t.handler
@@ -105,6 +128,8 @@ struct
 
   let commit_idx t = t.commit_idx
   let set_commit_idx commit_idx t = { t with commit_idx }
+
+  let max_par t = t.max_par_repl
 
   let me t = t.me
   let nodes t = t.nodes

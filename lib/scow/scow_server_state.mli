@@ -7,8 +7,8 @@ module Make :
       functor (Vote_store : Scow_vote_store.S) ->
         functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
 sig
-  type msg = Statem.ret Scow_server_msg.Make(Log)(Transport).t
-  type op  = Statem.ret Scow_server_msg.Make(Log)(Transport).op
+  type msg = Scow_server_msg.Make(Statem)(Log)(Transport).t
+  type op  = Scow_server_msg.Make(Statem)(Log)(Transport).op
 
   type 's handler =
       msg Gen_server.t ->
@@ -50,6 +50,8 @@ sig
 
   val commit_idx : t -> Scow_log_index.t
   val set_commit_idx : Scow_log_index.t -> t -> t
+
+  val max_par : t -> int
 
   val me : t -> Transport.Node.t
   val nodes : t -> Transport.Node.t list

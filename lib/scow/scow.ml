@@ -22,14 +22,14 @@ struct
              }
   end
 
-  module Msg       = Scow_server_msg.Make(Log)(Transport)
+  module Msg       = Scow_server_msg.Make(Statem)(Log)(Transport)
   module State     = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
   module Follower  = Scow_server_follower.Make(Statem)(Log)(Vote_store)(Transport)
   module Candidate = Scow_server_candidate.Make(Statem)(Log)(Vote_store)(Transport)
   module Leader    = Scow_server_leader.Make(Statem)(Log)(Vote_store)(Transport)
 
-  type t = Statem.ret Msg.t Gen_server.t
+  type t = Msg.t Gen_server.t
 
   module Server = struct
     module Resp = Gen_server.Response
@@ -115,9 +115,9 @@ struct
     >>= fun _ ->
     Deferred.unit
 
-  let append_log t entries =
+  let append_log t entry =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Op (Msg.Append_entries (ret, entries)))
+    Gen_server.send t (Msg.Op (Msg.Append_entry (ret, entry)))
     >>=? fun _ ->
     Ivar.read ret
     >>= function

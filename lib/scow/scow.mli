@@ -29,7 +29,7 @@ sig
 
   val append_log   :
     t ->
-    Log.elt list ->
+    Statem.op ->
     (Statem.ret, [> `Not_master | `Append_failed | `Closed ]) Deferred.Result.t
 
   val nodes        : t -> (Transport.Node.t list, [> `Closed ]) Deferred.Result.t

@@ -5,11 +5,13 @@ module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S) ->
       functor (Vote_store : Scow_vote_store.S) ->
-        functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
+        functor (Transport : Scow_transport.S
+                 with type Node.t = Vote_store.node
+                 and  type elt    = Log.elt) ->
 struct
   type state = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport).t
 
-  module Msg = Scow_server_msg.Make(Log)(Transport)
+  module Msg = Scow_server_msg.Make(Statem)(Log)(Transport)
   module TMsg = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
@@ -67,8 +69,23 @@ struct
     in
     Deferred.return (success, failed, in_flight)
 
-  let send_majority max_par sync async nodes =
-    send_majority_sync max_par sync nodes
+  let send_append_entries state entries =
+    let append_entries_rpc node =
+      let append_entries =
+        Scow_rpc.Append_entries.(
+          { term = State.current_term state
+          ; prev_log_index = failwith "nyi"
+          ; prev_log_term  = failwith "nyi"
+          ; leader_commit  = State.commit_idx state
+          ; entries        = entries
+          })
+      in
+      Transport.append_entries
+        (State.transport state)
+        node
+        append_entries
+    in
+    send_majority_sync (State.max_par state) append_entries_rpc (State.nodes state)
     >>= function
       | (success, [], in_flight) ->
         failwith "nyi"
@@ -127,6 +144,7 @@ struct
     end
 
   let handle_append_entries self state ret entries =
+    (* send_append_entries state entries *)
     failwith "nyi"
 
   let handle_timeout self state =
@@ -137,12 +155,14 @@ struct
       ignore_error (handle_rpc_append_entries self state (node, append_entries, ctx))
     | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
       ignore_error (handle_rpc_request_vote self state (node, request_vote, ctx))
-    | Msg.Append_entries (ret, entries) ->
-      ignore_error (handle_append_entries self state ret entries)
+    | Msg.Append_entry (ret, entry) ->
+      ignore_error (handle_append_entries self state ret entry)
     | Msg.Election_timeout
     | Msg.Heartbeat ->
       ignore_error (handle_timeout self state)
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
+    | Msg.Append_entries_resp _ ->
+      failwith "nyi"
 end
 
