@@ -27,10 +27,10 @@ struct
 
   module Append_entry = struct
     type errors = [ `Not_master | `Append_failed ]
-    type ret = (Statem.ret, errors) Deferred.Result.t
+    type ret = (Statem.ret, errors) Result.t
     type t = { log_index : Scow_log_index.t
              ; op        : Statem.op
-             ; ret       : ret
+             ; ret       : ret Ivar.t
              }
   end
 
@@ -186,4 +186,20 @@ struct
       (List.dedup ~compare:Transport.Node.compare t.votes_for_me)
 
   let clear_votes t = { t with votes_for_me = [] }
+
+  let add_append_entry append_entry t =
+    { t with append_entries = append_entry::t.append_entries }
+
+  let remove_append_entries log_index t =
+    let gt ae =
+      Scow_log_index.compare ae.Append_entry.log_index log_index <= 0
+    in
+    match List.filter ~f:gt t.append_entries with
+      | [] ->
+        ([], t)
+      | aes ->
+        let append_entries =
+          List.filter ~f:(Fn.compose not gt) t.append_entries
+        in
+        (aes, { t with append_entries })
 end

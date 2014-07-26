@@ -18,6 +18,15 @@ sig
 
   type t
 
+  module Append_entry : sig
+    type errors = [ `Not_master | `Append_failed ]
+    type ret = (Statem.ret, errors) Result.t
+    type t = { log_index : Scow_log_index.t
+             ; op        : Statem.op
+             ; ret       : ret Ivar.t
+             }
+  end
+
   module Init_args : sig
     type t_ = { me           : Transport.Node.t
               ; nodes        : Transport.Node.t list
@@ -71,4 +80,7 @@ sig
   val record_vote : Transport.Node.t -> t -> t
   val count_votes : t -> int
   val clear_votes : t -> t
+
+  val add_append_entry      : Append_entry.t -> t -> t
+  val remove_append_entries : Scow_log_index.t -> t -> (Append_entry.t list * t)
 end
