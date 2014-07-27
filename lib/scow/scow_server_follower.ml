@@ -80,7 +80,7 @@ struct
   let do_append_entries state ctx term entries =
     let state = State.set_current_term term state in
     Log.append (State.log state) term entries
-    >>=? fun () ->
+    >>=? fun _log_index ->
     Transport.resp_append_entries
       (State.transport state)
       ctx

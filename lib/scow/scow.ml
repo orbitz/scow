@@ -124,6 +124,7 @@ struct
       | Ok result            -> Deferred.return (Ok result)
       | Error `Not_master    -> Deferred.return (Error `Not_master)
       | Error `Append_failed -> Deferred.return (Error `Append_failed)
+      | Error `Invalid_log   -> Deferred.return (Error `Invalid_log)
 
   let send_with_ret t ret msg =
     Gen_server.send t msg

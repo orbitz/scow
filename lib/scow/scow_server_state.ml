@@ -26,7 +26,7 @@ struct
   end
 
   module Append_entry = struct
-    type errors = [ `Not_master | `Append_failed ]
+    type errors = [ `Not_master | `Append_failed | `Invalid_log ]
     type ret = (Statem.ret, errors) Result.t
     type t = { log_index : Scow_log_index.t
              ; op        : Statem.op
@@ -202,4 +202,25 @@ struct
           List.filter ~f:(Fn.compose not gt) t.append_entries
         in
         (aes, { t with append_entries })
+
+  let remove_all_append_entries t =
+    (t.append_entries, { t with append_entries = [] })
+
+  let next_idx node t =
+    Map.find t.next_idx node
+
+  let set_next_idx node log_index t =
+    { t with next_idx = Map.add ~key:node ~data:log_index t.next_idx }
+
+  let clear_next_idx t =
+    { t with next_idx = Node_map.empty }
+
+  let match_idx node t =
+    Map.find t.match_idx node
+
+  let set_match_idx node log_index t =
+    { t with match_idx = Map.add ~key:node ~data:log_index t.match_idx }
+
+  let clear_match_idx t =
+    { t with match_idx = Node_map.empty }
 end
