@@ -40,7 +40,8 @@ struct
       node
       append_entries
     >>= fun result ->
-    Gen_server.send self (Msg.Op (Msg.Append_entries_resp (node, result)))
+    let next_idx = Scow_log_index.succ log_index in
+    Gen_server.send self (Msg.Op (Msg.Append_entries_resp (node, next_idx, result)))
 
   let replicate_log_to_node self state node log_index =
     Log.get_entry
@@ -136,48 +137,88 @@ struct
   let handle_timeout self state =
     failwith "nyi"
 
-  let handle_append_entries_resp self state node = function
+  let cancel_pending_append_entries state =
+    let (entries, state) = State.remove_all_append_entries state in
+    List.iter
+      ~f:State.Append_entry.(fun ae -> Ivar.fill ae.ret (Error `Not_master))
+      entries;
+    state
+
+  let reply_any_pending_append_entries state =
+    let (entries, state) =
+      State.remove_append_entries (State.commit_idx state) state
+    in
+    let entries =
+      List.sort
+        ~cmp:(fun l r ->
+          State.Append_entry.(Scow_log_index.compare l.log_index r.log_index))
+        entries
+    in
+    Deferred.List.iter
+      ~f:(fun ae ->
+        let op  = ae.State.Append_entry.op in
+        let ret = ae.State.Append_entry.ret in
+        Statem.apply (State.statem state) op
+        >>= fun result ->
+        Ivar.fill ret (Ok result);
+        Deferred.unit)
+      entries
+    >>= fun _ ->
+    Deferred.return state
+
+  let do_handle_append_entries_resp self state node next_idx curr_next_idx = function
     | Ok (term, _) when Scow_term.compare (State.current_term state) term < 0 -> begin
       (* This node is ahead of us *)
       let state =
         state
         |> State.set_state_follower
+        |> State.cancel_heartbeat_timeout
+        |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
         |> State.clear_next_idx
         |> State.clear_match_idx
+        |> cancel_pending_append_entries
       in
       Deferred.return (Ok state)
     end
+    | Ok (term, true) -> begin
+      let state =
+        state
+        |> State.set_next_idx node next_idx
+        |> State.set_match_idx node (Scow_log_index.pred next_idx)
+        |> State.update_commit_index
+      in
+      reply_any_pending_append_entries state
+      >>= fun state ->
+      ignore (replicate_log_to_node self state node next_idx);
+      Deferred.return (Ok state)
+    end
     | Ok (term, false) -> begin
-      match State.next_idx node state with
-        | Some next_idx ->
-          let next_idx = Scow_log_index.pred next_idx in
-          let state = State.set_next_idx node next_idx state in
-          ignore (replicate_log_to_node self state node next_idx);
-          Deferred.return (Ok state)
-        | None -> begin
-          Log.get_log_index_range (State.log state)
-          >>=? fun (_low, high) ->
-          let state = State.set_next_idx node high state in
-          ignore (replicate_log_to_node self state node high);
-          Deferred.return (Ok state)
-        end
+      let next_idx = Scow_log_index.pred curr_next_idx in
+      let state = State.set_next_idx node next_idx state in
+      ignore (replicate_log_to_node self state node next_idx);
+      Deferred.return (Ok state)
     end
-    | Ok (term, true) ->
-      failwith "nyi"
     | Error `Transport_error -> begin
+      ignore (replicate_log_to_node self state node curr_next_idx);
+      Deferred.return (Ok state)
+    end
+
+  let handle_append_entries_resp self state node next_id resp =
+    let get_curr_next_idx () =
       match State.next_idx node state with
         | Some next_idx ->
-          ignore (replicate_log_to_node self state node next_idx);
-          Deferred.return (Ok state)
+          Deferred.return (Ok next_idx)
         | None -> begin
           Log.get_log_index_range (State.log state)
           >>=? fun (_low, high) ->
-          let state = State.set_next_idx node high state in
-          ignore (replicate_log_to_node self state node high);
-          Deferred.return (Ok state)
+          (* Consider pushing back to state *)
+          Deferred.return (Ok high)
         end
-    end
+    in
+    get_curr_next_idx ()
+    >>=? fun curr_next_idx ->
+    do_handle_append_entries_resp self state node next_id curr_next_idx resp
 
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
@@ -191,7 +232,7 @@ struct
       ignore_error (handle_timeout self state)
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
-    | Msg.Append_entries_resp (node, resp) ->
-      ignore_error (handle_append_entries_resp self state node resp)
+    | Msg.Append_entries_resp (node, next_idx, resp) ->
+      ignore_error (handle_append_entries_resp self state node next_idx resp)
 end
 

@@ -118,6 +118,9 @@ struct
 
   let handler t = t.handler
 
+  let me t = t.me
+  let nodes t = t.nodes
+
   let current_term t = t.current_term
   let set_current_term term t = { t with current_term = term }
 
@@ -129,10 +132,24 @@ struct
   let commit_idx t = t.commit_idx
   let set_commit_idx commit_idx t = { t with commit_idx }
 
-  let max_par t = t.max_par_repl
+  let update_commit_index t =
+    let majority = List.length (nodes t) / 2 + 1 in
+    let highest_committed_majority =
+      Node_map.data t.match_idx
+      |> List.sort ~cmp:Scow_log_index.compare
+      |> List.rev
+      |> Fn.flip List.take majority
+      |> List.rev
+    in
+    match highest_committed_majority with
+      | [] -> t
+      | (commit_idx::_) as all when List.length all = majority ->
+        { t with commit_idx }
+      | _ ->
+        (* In this case, match_idx is not full of values yet *)
+        t
 
-  let me t = t.me
-  let nodes t = t.nodes
+  let max_par t = t.max_par_repl
 
   let voted_for t = t.voted_for
   let set_voted_for voted_for t = { t with voted_for }
