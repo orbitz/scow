@@ -11,7 +11,7 @@ module Make =
 struct
   type state = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport).t
 
-  module Msg   = Scow_server_msg.Make(Log)(Transport)
+  module Msg   = Scow_server_msg.Make(Statem)(Log)(Transport)
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
@@ -80,7 +80,7 @@ struct
   let do_append_entries state ctx term entries =
     let state = State.set_current_term term state in
     Log.append (State.log state) term entries
-    >>=? fun () ->
+    >>=? fun _log_index ->
     Transport.resp_append_entries
       (State.transport state)
       ctx
@@ -204,12 +204,14 @@ struct
       ignore_error (handle_rpc_append_entries self state (node, append_entries, ctx))
     | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
       ignore_error (handle_rpc_request_vote self state (node, request_vote, ctx))
-    | Msg.Append_entries (ret, _) ->
+    | Msg.Append_entry (ret, _) ->
       ignore_error (handle_append_entries self state ret)
     | Msg.Election_timeout
     | Msg.Heartbeat ->
       ignore_error (handle_timeout self state)
     | Msg.Received_vote _ ->
+      Deferred.return (Ok state)
+    | Msg.Append_entries_resp _ ->
       Deferred.return (Ok state)
 end
 

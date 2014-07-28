@@ -1,16 +1,23 @@
 open Core.Std
 open Async.Std
 
-module Make : functor (Log : Scow_log.S) -> functor (Transport : Scow_transport.S) -> sig
-  type append_entries = (unit, [ `Not_master | `Append_failed ] as 'e) Result.t
+module Make :
+  functor (Statem : Scow_statem.S) ->
+    functor (Log : Scow_log.S) ->
+      functor (Transport : Scow_transport.S) ->
+sig
+  type append_entries = (Statem.ret, [ `Not_master | `Append_failed | `Invalid_log ]) Result.t
   type rpc = (Transport.Node.t, Transport.elt) Scow_transport.Msg.t * Transport.ctx
+  type append_entries_resp =
+      (Transport.Node.t * Scow_log_index.t * ((Scow_term.t * bool), [ `Transport_error ]) Result.t)
 
   type op =
     | Election_timeout
     | Heartbeat
-    | Rpc              of rpc
-    | Append_entries   of (append_entries Ivar.t * Log.elt list)
-    | Received_vote    of (Transport.Node.t * Scow_term.t * bool)
+    | Rpc                 of rpc
+    | Append_entry        of (append_entries Ivar.t * Statem.op)
+    | Received_vote       of (Transport.Node.t * Scow_term.t * bool)
+    | Append_entries_resp of append_entries_resp
 
   type getter =
     | Get_nodes        of Transport.Node.t list Ivar.t

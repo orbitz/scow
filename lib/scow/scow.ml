@@ -22,7 +22,7 @@ struct
              }
   end
 
-  module Msg       = Scow_server_msg.Make(Log)(Transport)
+  module Msg       = Scow_server_msg.Make(Statem)(Log)(Transport)
   module State     = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
 
   module Follower  = Scow_server_follower.Make(Statem)(Log)(Vote_store)(Transport)
@@ -115,15 +115,16 @@ struct
     >>= fun _ ->
     Deferred.unit
 
-  let append_log t entries =
+  let append_log t entry =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Op (Msg.Append_entries (ret, entries)))
+    Gen_server.send t (Msg.Op (Msg.Append_entry (ret, entry)))
     >>=? fun _ ->
     Ivar.read ret
     >>= function
-      | Ok ()                -> Deferred.return (Ok ())
+      | Ok result            -> Deferred.return (Ok result)
       | Error `Not_master    -> Deferred.return (Error `Not_master)
       | Error `Append_failed -> Deferred.return (Error `Append_failed)
+      | Error `Invalid_log   -> Deferred.return (Error `Invalid_log)
 
   let send_with_ret t ret msg =
     Gen_server.send t msg

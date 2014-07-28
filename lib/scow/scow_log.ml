@@ -8,7 +8,7 @@ module type S = sig
     t ->
     Scow_term.t ->
     elt list ->
-    (unit, [> `Append_failed | `Invalid_log ]) Deferred.Result.t
+    (Scow_log_index.t, [> `Append_failed | `Invalid_log ]) Deferred.Result.t
 
   val get_entry :
     t ->

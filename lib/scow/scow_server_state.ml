@@ -7,7 +7,7 @@ module Make =
       functor (Vote_store : Scow_vote_store.S) ->
         functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
 struct
-  module Msg = Scow_server_msg.Make(Log)(Transport)
+  module Msg = Scow_server_msg.Make(Statem)(Log)(Transport)
 
   type msg = Msg.t
   type op  = Msg.op
@@ -24,6 +24,23 @@ struct
                 ; leader    : 's handler
                 }
   end
+
+  module Append_entry = struct
+    type errors = [ `Not_master | `Append_failed | `Invalid_log ]
+    type ret = (Statem.ret, errors) Result.t
+    type t = { log_index : Scow_log_index.t
+             ; op        : Statem.op
+             ; ret       : ret Ivar.t
+             }
+  end
+
+  module Node_map = Map.Make(
+    struct
+      type t        = Transport.Node.t
+      let compare   = Transport.Node.compare
+      let t_of_sexp = failwith "nyi"
+      let sexp_of_t = failwith "nyi"
+    end)
 
   type t = { me              : Transport.Node.t
            ; nodes           : Transport.Node.t list
@@ -44,6 +61,9 @@ struct
            ; heartbeat_timer : Scow_timer.t option
            ; timeout         : Time.Span.t
            ; timeout_rand    : Time.Span.t
+           ; next_idx        : Scow_log_index.t Node_map.t
+           ; match_idx       : Scow_log_index.t Node_map.t
+           ; append_entries  : Append_entry.t list
            }
 
   module Init_args = struct
@@ -91,9 +111,15 @@ struct
           ; heartbeat_timer = None
           ; timeout         = init_args.Ia.timeout
           ; timeout_rand    = init_args.Ia.timeout_rand
+          ; next_idx        = Node_map.empty
+          ; match_idx       = Node_map.empty
+          ; append_entries  = []
           })
 
   let handler t = t.handler
+
+  let me t = t.me
+  let nodes t = t.nodes
 
   let current_term t = t.current_term
   let set_current_term term t = { t with current_term = term }
@@ -106,8 +132,24 @@ struct
   let commit_idx t = t.commit_idx
   let set_commit_idx commit_idx t = { t with commit_idx }
 
-  let me t = t.me
-  let nodes t = t.nodes
+  let update_commit_index t =
+    let majority = List.length (nodes t) / 2 + 1 in
+    let highest_committed_majority =
+      Node_map.data t.match_idx
+      |> List.sort ~cmp:Scow_log_index.compare
+      |> List.rev
+      |> Fn.flip List.take majority
+      |> List.rev
+    in
+    match highest_committed_majority with
+      | [] -> t
+      | (commit_idx::_) as all when List.length all = majority ->
+        { t with commit_idx }
+      | _ ->
+        (* In this case, match_idx is not full of values yet *)
+        t
+
+  let max_par t = t.max_par_repl
 
   let voted_for t = t.voted_for
   let set_voted_for voted_for t = { t with voted_for }
@@ -161,4 +203,41 @@ struct
       (List.dedup ~compare:Transport.Node.compare t.votes_for_me)
 
   let clear_votes t = { t with votes_for_me = [] }
+
+  let add_append_entry append_entry t =
+    { t with append_entries = append_entry::t.append_entries }
+
+  let remove_append_entries log_index t =
+    let gt ae =
+      Scow_log_index.compare ae.Append_entry.log_index log_index <= 0
+    in
+    match List.filter ~f:gt t.append_entries with
+      | [] ->
+        ([], t)
+      | aes ->
+        let append_entries =
+          List.filter ~f:(Fn.compose not gt) t.append_entries
+        in
+        (aes, { t with append_entries })
+
+  let remove_all_append_entries t =
+    (t.append_entries, { t with append_entries = [] })
+
+  let next_idx node t =
+    Map.find t.next_idx node
+
+  let set_next_idx node log_index t =
+    { t with next_idx = Map.add ~key:node ~data:log_index t.next_idx }
+
+  let clear_next_idx t =
+    { t with next_idx = Node_map.empty }
+
+  let match_idx node t =
+    Map.find t.match_idx node
+
+  let set_match_idx node log_index t =
+    { t with match_idx = Map.add ~key:node ~data:log_index t.match_idx }
+
+  let clear_match_idx t =
+    { t with match_idx = Node_map.empty }
 end
