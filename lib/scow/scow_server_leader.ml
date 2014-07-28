@@ -21,7 +21,7 @@ struct
       | Ok anything -> Deferred.return (Ok anything)
       | Error _     -> Deferred.return (Error ())
 
-  let send_append_entries self state node log_index term entries =
+  let send_append_entries self state node log_index next_idx_after term entries =
     Log.get_term
       (State.log state)
       (Scow_log_index.pred log_index)
@@ -40,15 +40,15 @@ struct
       node
       append_entries
     >>= fun result ->
-    let next_idx = Scow_log_index.succ log_index in
-    Gen_server.send self (Msg.Op (Msg.Append_entries_resp (node, next_idx, result)))
+    Gen_server.send self (Msg.Op (Msg.Append_entries_resp (node, next_idx_after, result)))
 
   let replicate_log_to_node self state node log_index =
     Log.get_entry
       (State.log state)
       log_index
     >>=? fun (term, entry) ->
-    send_append_entries self state node log_index term [entry]
+    let next_idx_after = Scow_log_index.succ log_index in
+    send_append_entries self state node log_index next_idx_after term [entry]
 
   let replicate_log self state log_index =
     List.iter
