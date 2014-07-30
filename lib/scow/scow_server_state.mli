@@ -45,7 +45,7 @@ sig
     type t = t_
   end
 
-  val create : Init_args.t -> (t, [> `Invalid_vote_store ]) Deferred.Result.t
+  val create : Init_args.t -> (t, [> `Invalid_vote_store | `Invalid_term_store ]) Deferred.Result.t
 
   val handler : t -> t handler
 

@@ -86,8 +86,11 @@ struct
 
   let create init_args =
     let module Ia = Init_args in
-    Store.load init_args.Ia.store
+    Store.load_vote init_args.Ia.store
     >>=? fun voted_for ->
+    Store.load_term init_args.Ia.store
+    >>=? fun current_term_opt ->
+    let current_term = Option.value current_term_opt ~default:(Scow_term.zero ()) in
     Deferred.return
       (Ok { me              = init_args.Ia.me
           ; nodes           = init_args.Ia.nodes
@@ -96,7 +99,7 @@ struct
           ; log             = init_args.Ia.log
           ; store           = init_args.Ia.store
           ; max_par_repl    = init_args.Ia.max_par_repl
-          ; current_term    = Scow_term.zero ()
+          ; current_term    = current_term
           ; commit_idx      = Scow_log_index.zero ()
           ; last_applied    = Scow_log_index.zero ()
           ; leader          = None
