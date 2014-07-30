@@ -158,7 +158,7 @@ struct
           ~term:(State.current_term state)
           ~granted:true
         >>=? fun () ->
-        Store.store (State.store state) (Some node)
+        Store.store_vote (State.store state) (Some node)
         >>=? fun () ->
         Deferred.return (Ok state)
       end

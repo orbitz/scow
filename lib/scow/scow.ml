@@ -51,8 +51,6 @@ struct
     let init self init_args =
       start_transport_listener self init_args.Init_args.transport;
       ignore (Gen_server.send self (Msg.Op Msg.Election_timeout));
-      Store.load init_args.Init_args.store
-      >>=? fun voted_for ->
       let init_args =
         State.Init_args.({ me           = init_args.Init_args.me
                          ; nodes        = init_args.Init_args.nodes

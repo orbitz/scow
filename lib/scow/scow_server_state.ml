@@ -86,7 +86,7 @@ struct
 
   let create init_args =
     let module Ia = Init_args in
-    Store.load init_args.Ia.store
+    Store.load_vote init_args.Ia.store
     >>=? fun voted_for ->
     Deferred.return
       (Ok { me              = init_args.Ia.me
