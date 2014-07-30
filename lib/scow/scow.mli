@@ -4,9 +4,9 @@ open Async.Std
 module Make :
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S with type elt = Statem.op) ->
-      functor (Vote_store : Scow_vote_store.S) ->
+      functor (Store : Scow_store.S) ->
         functor (Transport : Scow_transport.S
-                 with type Node.t = Vote_store.node
+                 with type Node.t = Store.node
                  and  type elt    = Log.elt) ->
 sig
   type t
@@ -17,7 +17,7 @@ sig
              ; statem                   : Statem.t
              ; transport                : Transport.t
              ; log                      : Log.t
-             ; vote_store               : Vote_store.t
+             ; store                    : Store.t
              ; max_parallel_replication : int
              ; timeout                  : Time.Span.t
              ; timeout_rand             : Time.Span.t

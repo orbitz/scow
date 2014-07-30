@@ -4,14 +4,14 @@ open Async.Std
 module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S) ->
-      functor (Vote_store : Scow_vote_store.S) ->
-        functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
+      functor (Store : Scow_store.S) ->
+        functor (Transport : Scow_transport.S with type Node.t = Store.node) ->
 struct
-  type state = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport).t
+  type state = Scow_server_state.Make(Statem)(Log)(Store)(Transport).t
 
   module Msg   = Scow_server_msg.Make(Statem)(Log)(Transport)
   module TMsg  = Scow_transport.Msg
-  module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
+  module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
   let ignore_error deferred =
     deferred

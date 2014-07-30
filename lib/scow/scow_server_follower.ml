@@ -4,16 +4,16 @@ open Async.Std
 module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S with type elt = Statem.op) ->
-      functor (Vote_store : Scow_vote_store.S) ->
+      functor (Store : Scow_store.S) ->
         functor (Transport : Scow_transport.S
-                 with type Node.t = Vote_store.node
+                 with type Node.t = Store.node
                  and  type elt    = Log.elt) ->
 struct
-  type state = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport).t
+  type state = Scow_server_state.Make(Statem)(Log)(Store)(Transport).t
 
   module Msg   = Scow_server_msg.Make(Statem)(Log)(Transport)
   module TMsg  = Scow_transport.Msg
-  module State = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
+  module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
   let ignore_error deferred =
     deferred
@@ -158,7 +158,7 @@ struct
           ~term:(State.current_term state)
           ~granted:true
         >>=? fun () ->
-        Vote_store.store (State.vote_store state) (Some node)
+        Store.store (State.store state) (Some node)
         >>=? fun () ->
         Deferred.return (Ok state)
       end

@@ -4,8 +4,8 @@ open Async.Std
 module Make :
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S) ->
-      functor (Vote_store : Scow_vote_store.S) ->
-        functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
+      functor (Store : Scow_store.S) ->
+        functor (Transport : Scow_transport.S with type Node.t = Store.node) ->
 sig
   type msg = Scow_server_msg.Make(Statem)(Log)(Transport).t
   type op  = Scow_server_msg.Make(Statem)(Log)(Transport).op
@@ -33,7 +33,7 @@ sig
               ; statem       : Statem.t
               ; transport    : Transport.t
               ; log          : Log.t
-              ; vote_store   : Vote_store.t
+              ; store        : Store.t
               ; max_par_repl : int
               ; timeout      : Time.Span.t
               ; timeout_rand : Time.Span.t
@@ -54,7 +54,7 @@ sig
 
   val transport : t -> Transport.t
   val log : t -> Log.t
-  val vote_store : t -> Vote_store.t
+  val store : t -> Store.t
   val statem : t -> Statem.t
 
   val commit_idx : t -> Scow_log_index.t
