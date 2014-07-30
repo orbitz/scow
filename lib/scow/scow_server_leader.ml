@@ -1,6 +1,26 @@
 open Core.Std
 open Async.Std
 
+(*
+ * How state is transfered to followers:
+ *
+ * Heartbeats
+ *   - A heartbeat (empty append entries) is sent only if
+ *     match_idx equals [pred next_idx].  This means that,
+ *     at the time of performing the heartbeat the node is
+ *     completely caught up.
+ *
+ *   - The heartbeat message will kick off replication of the log
+ *     to other nodes if the node does not exist in the next_idx or
+ *     match_idx maps.  This means that no other peice of code has
+ *     attempted to initiate an append entries on that node.
+ *
+ * Append_entry
+ *   - If the next_idx equals the new log index for the entry, replicate it.
+ *     Otherwise it is assumed that somebody is already trying to bring the
+ *     node up to date.
+ *)
+
 module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S with type elt = Statem.op) ->
@@ -134,8 +154,41 @@ struct
         Deferred.return (Ok state)
       end
 
-  let handle_timeout self state =
-    failwith "nyi"
+  let do_send_heartbeat self state node =
+    Log.get_log_index_range (State.log state)
+    >>= function
+      | Ok (_low, high) -> begin
+        let next_idx = Scow_log_index.succ high in
+        let state =
+          state
+          |> State.set_next_idx node next_idx
+          |> State.set_match_idx node (Scow_log_index.zero ())
+        in
+        let term = State.current_term state in
+        ignore (send_append_entries self state node next_idx next_idx term []);
+        Deferred.return state
+      end
+      | Error `Invalid_log ->
+        failwith "nyi"
+
+  let send_heartbeat self state node =
+    match (State.next_idx node state, State.match_idx node state) with
+      | (Some next_idx, Some match_idx)
+          when Scow_log_index.is_equal (Scow_log_index.pred next_idx) match_idx ->
+        do_send_heartbeat self state node
+      | (Some _, Some _) ->
+        Deferred.return state
+      | _ -> begin
+        do_send_heartbeat self state node
+      end
+
+  let handle_heartbeat self state =
+    Deferred.List.fold
+      ~f:(send_heartbeat self)
+      ~init:state
+      (State.nodes state)
+    >>= fun state ->
+    Deferred.return (Ok state)
 
   let cancel_pending_append_entries state =
     let (entries, state) = State.remove_all_append_entries state in
@@ -229,7 +282,7 @@ struct
       ignore_error (handle_append_entry self state ret entry)
     | Msg.Election_timeout
     | Msg.Heartbeat ->
-      ignore_error (handle_timeout self state)
+      ignore_error (handle_heartbeat self state)
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
     | Msg.Append_entries_resp (node, next_idx, resp) ->
