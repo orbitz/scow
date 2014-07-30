@@ -105,6 +105,8 @@ struct
         Deferred.return (Ok t)
       | Error (`Error `Invalid_vote_store) ->
         Deferred.return (Error `Invalid_vote_store)
+      | Error (`Error `Invalid_term_store) ->
+        Deferred.return (Error `Invalid_term_store)
       | Error (`Exn _) ->
         Deferred.return (Error `Unknown)
 

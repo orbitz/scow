@@ -152,13 +152,13 @@ struct
       end
       | None -> begin
         let state = State.set_voted_for (Some node) state in
+        Store.store_vote (State.store state) (Some node)
+        >>=? fun () ->
         Transport.resp_request_vote
           (State.transport state)
           ctx
           ~term:(State.current_term state)
           ~granted:true
-        >>=? fun () ->
-        Store.store_vote (State.store state) (Some node)
         >>=? fun () ->
         Deferred.return (Ok state)
       end
@@ -183,13 +183,21 @@ struct
 
   let handle_timeout self state =
     let term = Scow_term.succ (State.current_term state) in
+    Log.get_log_index_range (State.log state)
+    >>=? fun (_low, high) ->
+    Log.get_term (State.log state) high
+    >>=? fun last_term ->
     let vote_request =
       Scow_rpc.({ Request_vote.term           = term
-                ;              last_log_index = failwith "nyi"
-                ;              last_log_term  = failwith "nyi"
+                ;              last_log_index = high
+                ;              last_log_term  = last_term
                 })
     in
     request_votes self vote_request (State.transport state) (State.nodes state);
+    Store.store_vote (State.store state) (Some (State.me state))
+    >>=? fun () ->
+    Store.store_term (State.store state) term
+    >>=? fun () ->
     state
     |> State.set_state_candidate
     |> State.set_current_term term
