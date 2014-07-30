@@ -188,6 +188,10 @@ struct
       ~init:state
       (State.nodes state)
     >>= fun state ->
+    let state =
+      state
+      |> State.set_heartbeat_timeout self
+    in
     Deferred.return (Ok state)
 
   let cancel_pending_append_entries state =
@@ -225,7 +229,6 @@ struct
       let state =
         state
         |> State.set_state_follower
-        |> State.cancel_heartbeat_timeout
         |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
         |> State.clear_next_idx
