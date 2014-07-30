@@ -4,8 +4,8 @@ open Async.Std
 module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S) ->
-      functor (Vote_store : Scow_vote_store.S) ->
-        functor (Transport : Scow_transport.S with type Node.t = Vote_store.node) ->
+      functor (Store : Scow_store.S) ->
+        functor (Transport : Scow_transport.S with type Node.t = Store.node) ->
 struct
   module Msg = Scow_server_msg.Make(Statem)(Log)(Transport)
 
@@ -47,7 +47,7 @@ struct
            ; statem          : Statem.t
            ; transport       : Transport.t
            ; log             : Log.t
-           ; vote_store      : Vote_store.t
+           ; store           : Store.t
            ; max_par_repl    : int
            ; current_term    : Scow_term.t
            ; commit_idx      : Scow_log_index.t
@@ -72,7 +72,7 @@ struct
               ; statem       : Statem.t
               ; transport    : Transport.t
               ; log          : Log.t
-              ; vote_store   : Vote_store.t
+              ; store        : Store.t
               ; max_par_repl : int
               ; timeout      : Time.Span.t
               ; timeout_rand : Time.Span.t
@@ -86,7 +86,7 @@ struct
 
   let create init_args =
     let module Ia = Init_args in
-    Vote_store.load init_args.Ia.vote_store
+    Store.load init_args.Ia.store
     >>=? fun voted_for ->
     Deferred.return
       (Ok { me              = init_args.Ia.me
@@ -94,7 +94,7 @@ struct
           ; statem          = init_args.Ia.statem
           ; transport       = init_args.Ia.transport
           ; log             = init_args.Ia.log
-          ; vote_store      = init_args.Ia.vote_store
+          ; store           = init_args.Ia.store
           ; max_par_repl    = init_args.Ia.max_par_repl
           ; current_term    = Scow_term.zero ()
           ; commit_idx      = Scow_log_index.zero ()
@@ -126,7 +126,7 @@ struct
 
   let transport t = t.transport
   let log t = t.log
-  let vote_store t = t.vote_store
+  let store t = t.store
   let statem t = t.statem
 
   let commit_idx t = t.commit_idx

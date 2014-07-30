@@ -4,9 +4,9 @@ open Async.Std
 module Make =
   functor (Statem : Scow_statem.S) ->
     functor (Log : Scow_log.S with type elt = Statem.op) ->
-      functor (Vote_store : Scow_vote_store.S) ->
+      functor (Store : Scow_store.S) ->
         functor (Transport : Scow_transport.S
-                 with type Node.t = Vote_store.node
+                 with type Node.t = Store.node
                  and  type elt    = Log.elt) ->
 struct
   module Init_args = struct
@@ -15,7 +15,7 @@ struct
              ; statem                   : Statem.t
              ; transport                : Transport.t
              ; log                      : Log.t
-             ; vote_store               : Vote_store.t
+             ; store                    : Store.t
              ; max_parallel_replication : int
              ; timeout                  : Time.Span.t
              ; timeout_rand             : Time.Span.t
@@ -23,11 +23,11 @@ struct
   end
 
   module Msg       = Scow_server_msg.Make(Statem)(Log)(Transport)
-  module State     = Scow_server_state.Make(Statem)(Log)(Vote_store)(Transport)
+  module State     = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  module Follower  = Scow_server_follower.Make(Statem)(Log)(Vote_store)(Transport)
-  module Candidate = Scow_server_candidate.Make(Statem)(Log)(Vote_store)(Transport)
-  module Leader    = Scow_server_leader.Make(Statem)(Log)(Vote_store)(Transport)
+  module Follower  = Scow_server_follower.Make(Statem)(Log)(Store)(Transport)
+  module Candidate = Scow_server_candidate.Make(Statem)(Log)(Store)(Transport)
+  module Leader    = Scow_server_leader.Make(Statem)(Log)(Store)(Transport)
 
   type t = Msg.t Gen_server.t
 
@@ -51,7 +51,7 @@ struct
     let init self init_args =
       start_transport_listener self init_args.Init_args.transport;
       ignore (Gen_server.send self (Msg.Op Msg.Election_timeout));
-      Vote_store.load init_args.Init_args.vote_store
+      Store.load init_args.Init_args.store
       >>=? fun voted_for ->
       let init_args =
         State.Init_args.({ me           = init_args.Init_args.me
@@ -59,7 +59,7 @@ struct
                          ; statem       = init_args.Init_args.statem
                          ; transport    = init_args.Init_args.transport
                          ; log          = init_args.Init_args.log
-                         ; vote_store   = init_args.Init_args.vote_store
+                         ; store        = init_args.Init_args.store
                          ; max_par_repl = init_args.Init_args.max_parallel_replication
                          ; timeout      = init_args.Init_args.timeout
                          ; timeout_rand = init_args.Init_args.timeout_rand
