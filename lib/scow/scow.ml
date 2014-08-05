@@ -80,15 +80,30 @@ struct
         >>= function
           | Ok state ->
             Deferred.return (Resp.Ok state)
-          | Error _ ->
-            Deferred.return (Resp.Error ((), state))
+          | Error err ->
+            Deferred.return (Resp.Error (err, state))
       end
       | Msg.Get getter -> begin
         Deferred.return (Resp.Ok state)
       end
 
-    let terminate _reason _state =
-      Deferred.unit
+    let terminate reason _state =
+      let string_of_error = function
+        | `Invalid_log        -> "Invalid_log"
+        | `Invalid_term_store -> "Invalid_term_store"
+        | `Invalid_vote_store -> "Invalid_vote_store"
+        | `Not_found          -> "Not_found"
+        | `Transport_error    -> "Transport_error"
+      in
+      let open Gen_server.Server in
+      match reason with
+        | Normal -> Deferred.unit
+        | Exn _  -> begin printf "Exn\n"; Deferred.unit end
+        | Error err -> begin
+          printf "Error: %s\n" (string_of_error err);
+          Deferred.unit
+        end
+
 
     let callbacks = { Gen_server.Server.init; handle_call; terminate }
   end

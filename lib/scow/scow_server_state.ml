@@ -12,11 +12,19 @@ struct
   type msg = Msg.t
   type op  = Msg.op
 
+  type errors =
+    [ `Invalid_log
+    | `Invalid_term_store
+    | `Invalid_vote_store
+    | `Not_found
+    | `Transport_error
+    ]
+
   type 's handler =
       msg Gen_server.t ->
       's ->
       op ->
-      ('s, unit) Deferred.Result.t
+      ('s, errors) Deferred.Result.t
 
   module States = struct
     type 's t = { follower  : 's handler
@@ -36,10 +44,10 @@ struct
 
   module Node_map = Map.Make(
     struct
-      type t        = Transport.Node.t
-      let compare   = Transport.Node.compare
-      let t_of_sexp = failwith "nyi"
-      let sexp_of_t = failwith "nyi"
+      type t          = Transport.Node.t
+      let compare     = Transport.Node.compare
+      let t_of_sexp _ = failwith "nyi"
+      let sexp_of_t _ = failwith "nyi"
     end)
 
   type t = { me              : Transport.Node.t

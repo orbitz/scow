@@ -30,16 +30,11 @@ module Make =
                  and  type elt    = Log.elt) ->
 struct
   type state = Scow_server_state.Make(Statem)(Log)(Store)(Transport).t
+  type errors = Scow_server_state.Make(Statem)(Log)(Store)(Transport).errors
 
   module Msg = Scow_server_msg.Make(Statem)(Log)(Transport)
   module TMsg = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
-
-  let ignore_error deferred =
-    deferred
-    >>= function
-      | Ok anything -> Deferred.return (Ok anything)
-      | Error _     -> Deferred.return (Error ())
 
   let send_append_entries self state node log_index next_idx_after term entries =
     Log.get_term
@@ -278,17 +273,17 @@ struct
 
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
-      ignore_error (handle_rpc_append_entries self state (node, append_entries, ctx))
+      handle_rpc_append_entries self state (node, append_entries, ctx)
     | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
-      ignore_error (handle_rpc_request_vote self state (node, request_vote, ctx))
+      handle_rpc_request_vote self state (node, request_vote, ctx)
     | Msg.Append_entry (ret, entry) ->
-      ignore_error (handle_append_entry self state ret entry)
+      handle_append_entry self state ret entry
     | Msg.Election_timeout
     | Msg.Heartbeat ->
-      ignore_error (handle_heartbeat self state)
+      handle_heartbeat self state
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
     | Msg.Append_entries_resp (node, next_idx, resp) ->
-      ignore_error (handle_append_entries_resp self state node next_idx resp)
+      handle_append_entries_resp self state node next_idx resp
 end
 
