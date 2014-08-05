@@ -10,11 +10,19 @@ sig
   type msg = Scow_server_msg.Make(Statem)(Log)(Transport).t
   type op  = Scow_server_msg.Make(Statem)(Log)(Transport).op
 
+  type errors =
+    [ `Invalid_log
+    | `Invalid_term_store
+    | `Invalid_vote_store
+    | `Not_found
+    | `Transport_error
+    ]
+
   type 's handler =
       msg Gen_server.t ->
       's ->
       op ->
-      ('s, unit) Deferred.Result.t
+      ('s, errors) Deferred.Result.t
 
   type t
 
