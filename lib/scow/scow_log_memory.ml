@@ -42,12 +42,16 @@ module Make = functor (Elt : ELT) -> struct
       | Some data ->
         Deferred.return (Ok data)
       | None ->
-      Deferred.return (Error `Not_found)
+        Deferred.return (Error `Not_found)
 
   let get_term t log_index =
-    get_entry t log_index
-    >>=? fun (term, _) ->
+    if Scow_log_index.compare log_index (Scow_log_index.zero ()) = 0 then
+      Deferred.return (Ok (Scow_term.zero ()))
+    else begin
+      get_entry t log_index
+      >>=? fun (term, _) ->
       Deferred.return (Ok term)
+    end
 
   let get_log_index_range t =
     match (Map.min_elt t.log, Map.max_elt t.log) with

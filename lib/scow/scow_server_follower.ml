@@ -20,7 +20,7 @@ struct
     let module Ae    = Scow_rpc.Append_entries in
     let current_term = State.current_term state in
     let ae_term      = append_entries.Ae.term in
-    if Scow_term.compare current_term ae_term >= 0 then
+    if Scow_term.compare current_term ae_term <= 0 then
       Deferred.return (Ok ())
     else
       Deferred.return (Error `Term_less_than_current)
@@ -98,13 +98,16 @@ struct
       Deferred.return (Ok state)
 
   let apply_rpc_append_entries self state (node, append_entries, ctx) =
+    let module Ae = Scow_rpc.Append_entries in
     let test_and_do () =
-      let module Ae = Scow_rpc.Append_entries in
       can_apply_log state append_entries
       >>=? fun entries ->
       do_append_entries state ctx append_entries.Ae.term entries
       >>=? fun state ->
       apply_state_machine state append_entries.Ae.leader_commit
+      >>=? fun state ->
+      let term = append_entries.Ae.term in
+      Deferred.return (Ok (State.set_current_term term state))
     in
     test_and_do ()
     >>= function
@@ -125,9 +128,10 @@ struct
         Deferred.return (Ok state)
       end
 
-  let handle_rpc_append_entries self state append_entries_data =
+  let handle_rpc_append_entries self state node append_entries_data =
     let state =
       state
+      |> State.set_leader (Some node)
       |> State.cancel_election_timeout
       |> State.cancel_heartbeat_timeout
       |> State.set_heartbeat_timeout self
@@ -168,15 +172,14 @@ struct
         transport
         node
         vote_request
-      >>=? fun (term, success) -> begin
+      >>=? fun (term, success) ->
       Gen_server.send self (Msg.Op (Msg.Received_vote (node, term, success)))
-      end
     in
     List.iter
       ~f:(fun node -> ignore (send_request_vote node))
       nodes
 
-  let handle_timeout self state =
+  let handle_election_timeout self state =
     let term = Scow_term.succ (State.current_term state) in
     Log.get_log_index_range (State.log state)
     >>=? fun (_low, high) ->
@@ -194,6 +197,7 @@ struct
     Store.store_term (State.store state) term
     >>=? fun () ->
     state
+    |> State.set_leader None
     |> State.set_state_candidate
     |> State.set_current_term term
     |> State.set_heartbeat_timeout self
@@ -202,16 +206,23 @@ struct
     |> Result.return
     |> Deferred.return
 
+  let handle_heartbeat self state =
+    state
+    |> State.set_election_timeout self
+    |> Result.return
+    |> Deferred.return
+
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
-      handle_rpc_append_entries self state (node, append_entries, ctx)
+      handle_rpc_append_entries self state node (node, append_entries, ctx)
     | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
       handle_rpc_request_vote self state (node, request_vote, ctx)
     | Msg.Append_entry (ret, _) ->
       handle_append_entries self state ret
-    | Msg.Election_timeout
+    | Msg.Election_timeout ->
+      handle_election_timeout self state
     | Msg.Heartbeat ->
-      handle_timeout self state
+      handle_heartbeat self state
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
     | Msg.Append_entries_resp _ ->
