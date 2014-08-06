@@ -85,6 +85,10 @@ struct
         Ivar.fill ret (State.me state);
         Deferred.return (Resp.Ok state)
       end
+      | Msg.Get (Msg.Get_current_term ret) -> begin
+        Ivar.fill ret (State.current_term state);
+        Deferred.return (Resp.Ok state)
+      end
       | Msg.Get _ ->
         Deferred.return (Resp.Ok state)
 

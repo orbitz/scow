@@ -40,6 +40,7 @@ struct
       let state =
         state
         |> State.set_state_follower
+        |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
       in
