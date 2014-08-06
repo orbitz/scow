@@ -21,7 +21,6 @@ module Store = Scow_store_memory.Make(Transport.Node)
 module Scow = Scow.Make(Statem)(Log)(Store)(Transport)
 
 let create_scow router nodes me =
-  let me = Transport.Router.add_node router in
   let transport = Transport.create me router in
   let log = Log.create () in
   let store = Store.create () in
@@ -35,13 +34,41 @@ let create_scow router nodes me =
                   ;    store                    = store
                   ;    max_parallel_replication = 3
                   ;    timeout                  = sec 1.0
-                  ;    timeout_rand             = sec 10.0
+                  ;    timeout_rand             = sec 2.0
                   }
   in
   Scow.start init_args
   >>= function
     | Ok scow -> Deferred.return scow
     | Error _ -> failwith "nyi"
+
+let print_leader me = function
+  | Some leader ->
+    printf "%s: Leader - %s\n%!" me leader
+  | None ->
+    printf "%s: No leader\n%!" me
+
+let print_leader_info scows () =
+  let print scow =
+    Scow.me scow
+    >>=? fun me ->
+    Scow.leader scow
+    >>= function
+      | Ok result -> begin
+        print_leader me result;
+        Deferred.return (Ok ())
+      end
+      | Error `Closed -> begin
+        printf "%s: Closed\n%!" me;
+        Deferred.return (Ok ())
+      end
+  in
+  Deferred.List.iter
+    ~f:(fun scow ->
+      print scow
+      >>= fun _ ->
+      Deferred.unit)
+    scows
 
 let main () =
   let router = Transport.Router.create () in
@@ -54,21 +81,10 @@ let main () =
     nodes
   >>| fun scows ->
   every
-    (sec 1.0)
-    (fun () ->
-      ignore
-        (Deferred.List.iter
-           ~f:(fun scow ->
-             Scow.leader scow
-             >>| function
-               | Ok (Some leader) ->
-                 printf "Leader - %s\n" leader
-               | Ok None ->
-                 printf "No leader\n"
-               | Error `Closed ->
-                 printf "Closed\n")
-           scows))
+    (sec 5.0)
+    (Fn.compose ignore (print_leader_info scows))
 
 let () =
+  Random.self_init ();
   ignore (main ());
   never_returns (Scheduler.go ());

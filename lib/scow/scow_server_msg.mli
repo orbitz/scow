@@ -20,6 +20,7 @@ sig
     | Append_entries_resp of append_entries_resp
 
   type getter =
+    | Get_me           of Transport.Node.t Ivar.t
     | Get_nodes        of Transport.Node.t list Ivar.t
     | Get_current_term of Scow_term.t Ivar.t
     | Get_voted_for    of Transport.Node.t option Ivar.t

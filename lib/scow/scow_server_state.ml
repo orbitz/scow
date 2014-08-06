@@ -99,9 +99,14 @@ struct
     Store.load_term init_args.Ia.store
     >>=? fun current_term_opt ->
     let current_term = Option.value current_term_opt ~default:(Scow_term.zero ()) in
+    let nodes =
+      List.filter
+        ~f:(fun n -> Transport.Node.compare n init_args.Ia.me <> 0)
+        init_args.Ia.nodes
+    in
     Deferred.return
       (Ok { me              = init_args.Ia.me
-          ; nodes           = init_args.Ia.nodes
+          ; nodes           = nodes
           ; statem          = init_args.Ia.statem
           ; transport       = init_args.Ia.transport
           ; log             = init_args.Ia.log
@@ -131,6 +136,9 @@ struct
 
   let me t = t.me
   let nodes t = t.nodes
+  let leader t = t.leader
+  let set_leader leader_opt t =
+    { t with leader = leader_opt }
 
   let current_term t = t.current_term
   let set_current_term term t = { t with current_term = term }
@@ -165,20 +173,20 @@ struct
   let voted_for t = t.voted_for
   let set_voted_for voted_for t = { t with voted_for }
 
-  let create_timer timeout server =
+  let create_timer timeout server msg =
     let f =
       fun () ->
-        ignore (Gen_server.send server (Msg.Op Msg.Election_timeout))
+        ignore (Gen_server.send server (Msg.Op msg))
     in
     Scow_timer.create timeout f
 
   let set_heartbeat_timeout server t =
-    { t with heartbeat_timer = Some (create_timer t.timeout server) }
+    { t with heartbeat_timer = Some (create_timer t.timeout server Msg.Heartbeat) }
 
   let set_election_timeout server t =
     let rand_diff = Random.float (Time.Span.to_ms t.timeout_rand) in
     let timeout   = Time.Span.of_ms (Time.Span.to_ms t.timeout +. rand_diff) in
-    { t with election_timer = Some (create_timer timeout server) }
+    { t with election_timer = Some (create_timer timeout server Msg.Election_timeout) }
 
   let cancel_timeout timer_opt =
     match timer_opt with

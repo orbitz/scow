@@ -73,6 +73,8 @@ sig
 
   val me : t -> Transport.Node.t
   val nodes : t -> Transport.Node.t list
+  val leader : t -> Transport.Node.t option
+  val set_leader : Transport.Node.t option -> t -> t
 
   val voted_for : t -> Transport.Node.t option
   val set_voted_for : Transport.Node.t option -> t -> t

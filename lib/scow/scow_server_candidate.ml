@@ -69,6 +69,7 @@ struct
      *)
     let state =
       state
+      |> State.set_leader (Some (State.me state))
       |> State.set_state_leader
       |> State.cancel_election_timeout
       |> State.cancel_heartbeat_timeout
@@ -81,7 +82,8 @@ struct
 
   let handle_received_yes_vote self state node =
     let state = State.record_vote node state in
-    if State.count_votes state > (List.length (State.nodes state) / 2) then begin
+    (* The +1 is because 'me' is not in [State.nodes] but it is in vote count *)
+    if State.count_votes state > ((List.length (State.nodes state) + 1) / 2) then begin
       transition_to_leader self state
     end
     else

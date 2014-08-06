@@ -32,6 +32,7 @@ sig
     Statem.op ->
     (Statem.ret, [> `Not_master | `Append_failed | `Invalid_log | `Closed ]) Deferred.Result.t
 
+  val me           : t -> (Transport.Node.t, [> `Closed ]) Deferred.Result.t
   val nodes        : t -> (Transport.Node.t list, [> `Closed ]) Deferred.Result.t
   val current_term : t -> (Scow_term.t, [> `Closed ]) Deferred.Result.t
   val voted_for    : t -> (Transport.Node.t option, [> `Closed ]) Deferred.Result.t

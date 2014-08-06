@@ -50,7 +50,7 @@ struct
 
     let init self init_args =
       start_transport_listener self init_args.Init_args.transport;
-      ignore (Gen_server.send self (Msg.Op Msg.Election_timeout));
+      ignore (Gen_server.send self (Msg.Op Msg.Heartbeat));
       let init_args =
         State.Init_args.({ me           = init_args.Init_args.me
                          ; nodes        = init_args.Init_args.nodes
@@ -66,13 +66,7 @@ struct
                          ; leader       = Leader.handle_call
                          })
       in
-      (* Create timeout to kick off elections *)
       State.create init_args
-      >>=? fun state ->
-        state
-        |> State.set_election_timeout self
-        |> Result.return
-        |> Deferred.return
 
     let handle_call self state = function
       | Msg.Op op -> begin
@@ -83,9 +77,16 @@ struct
           | Error err ->
             Deferred.return (Resp.Error (err, state))
       end
-      | Msg.Get getter -> begin
+      | Msg.Get (Msg.Get_leader ret) -> begin
+        Ivar.fill ret (State.leader state);
         Deferred.return (Resp.Ok state)
       end
+      | Msg.Get (Msg.Get_me ret) -> begin
+        Ivar.fill ret (State.me state);
+        Deferred.return (Resp.Ok state)
+      end
+      | Msg.Get _ ->
+        Deferred.return (Resp.Ok state)
 
     let terminate reason _state =
       let string_of_error = function
@@ -103,7 +104,6 @@ struct
           printf "Error: %s\n" (string_of_error err);
           Deferred.unit
         end
-
 
     let callbacks = { Gen_server.Server.init; handle_call; terminate }
   end
@@ -147,6 +147,10 @@ struct
     Ivar.read ret
     >>= fun result ->
     Deferred.return (Ok result)
+
+  let me t =
+    let ret = Ivar.create () in
+    send_with_ret t ret (Msg.Get (Msg.Get_me ret))
 
   let nodes t =
     let ret = Ivar.create () in

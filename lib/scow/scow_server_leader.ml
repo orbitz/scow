@@ -223,6 +223,7 @@ struct
       (* This node is ahead of us *)
       let state =
         state
+        |> State.set_leader (Some node)
         |> State.set_state_follower
         |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
