@@ -139,8 +139,12 @@ struct
     apply_rpc_append_entries self state append_entries_data
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
+    let module Rv = Scow_rpc.Request_vote in
+    let request_vote_not_in_future =
+      Scow_term.compare (State.current_term state) request_vote.Rv.term >= 0
+    in
     match State.voted_for state with
-      | Some _ -> begin
+      | Some _ when request_vote_not_in_future -> begin
         Transport.resp_request_vote
           (State.transport state)
           ctx
@@ -149,8 +153,12 @@ struct
         >>=? fun () ->
         Deferred.return (Ok state)
       end
-      | None -> begin
-        let state = State.set_voted_for (Some node) state in
+      | _ -> begin
+        let state =
+          state
+          |> State.set_voted_for (Some node)
+          |> State.set_current_term request_vote.Rv.term
+        in
         Store.store_vote (State.store state) (Some node)
         >>=? fun () ->
         Transport.resp_request_vote

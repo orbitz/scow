@@ -81,6 +81,8 @@ struct
     if Scow_term.compare (State.current_term state) append_entries.Ae.term < 0 then
       let state =
         state
+        |> State.set_leader (Some node)
+        |> State.set_current_term append_entries.Ae.term
         |> State.set_state_follower
         |> State.set_heartbeat_timeout self
       in
@@ -104,7 +106,9 @@ struct
     if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then
       let state =
         state
+        |> State.set_leader (Some node)
         |> State.set_state_follower
+        |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
       in
@@ -224,6 +228,7 @@ struct
       let state =
         state
         |> State.set_leader (Some node)
+        |> State.set_current_term term
         |> State.set_state_follower
         |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
