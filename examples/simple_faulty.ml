@@ -23,7 +23,7 @@ module Scow = Scow.Make(Statem)(Log)(Store)(Transport)
 
 let create_scow router nodes me =
   let memory_transport = Memory_transport.create me router in
-  let transport = Transport.create (Int.of_string Sys.argv.(1)) memory_transport in
+  let transport = Transport.create (Int.of_string Sys.argv.(2)) memory_transport in
   let log = Log.create () in
   let store = Store.create () in
   let statem = () in
@@ -77,12 +77,13 @@ let print_leader_info scows () =
   printf "---\n";
   Deferred.unit
 
+let rec create_nodes router = function
+  | 0 -> []
+  | n -> Memory_transport.Router.add_node router :: create_nodes router (n - 1)
+
 let main () =
   let router = Memory_transport.Router.create () in
-  let node1  = Memory_transport.Router.add_node router in
-  let node2  = Memory_transport.Router.add_node router in
-  let node3  = Memory_transport.Router.add_node router in
-  let nodes  = [ node1; node2; node3 ] in
+  let nodes  = create_nodes router (Int.of_string Sys.argv.(1)) in
   Deferred.List.map
     ~f:(create_scow router nodes)
     nodes

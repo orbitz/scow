@@ -69,13 +69,17 @@ let print_leader_info scows () =
       >>= fun _ ->
       Deferred.unit)
     scows
+  >>= fun _ ->
+  printf "---\n";
+  Deferred.unit
+
+let rec create_nodes router = function
+  | 0 -> []
+  | n -> Transport.Router.add_node router :: create_nodes router (n - 1)
 
 let main () =
   let router = Transport.Router.create () in
-  let node1 = Transport.Router.add_node router in
-  let node2 = Transport.Router.add_node router in
-  let node3 = Transport.Router.add_node router in
-  let nodes = [ node1; node2; node3 ] in
+  let nodes  = create_nodes router (Int.of_string Sys.argv.(1)) in
   Deferred.List.map
     ~f:(create_scow router nodes)
     nodes
