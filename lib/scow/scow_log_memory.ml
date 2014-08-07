@@ -22,7 +22,7 @@ module Make = functor (Elt : ELT) -> struct
            }
 
   let create () =
-    { log = Log_map.empty; next_idx = Scow_log_index.zero () }
+    { log = Log_map.empty; next_idx = Scow_log_index.succ (Scow_log_index.zero ()) }
 
   let append t term elts =
     let (log, next_idx) =
