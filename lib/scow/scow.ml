@@ -103,7 +103,7 @@ struct
       let open Gen_server.Server in
       match reason with
         | Normal -> Deferred.unit
-        | Exn _  -> begin printf "Exn\n"; Deferred.unit end
+        | Exn exn  -> begin printf "Exn %s\n%!" (Exn.to_string exn); Deferred.unit end
         | Error err -> begin
           printf "Error: %s\n" (string_of_error err);
           Deferred.unit

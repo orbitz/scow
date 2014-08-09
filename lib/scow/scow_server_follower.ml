@@ -75,7 +75,7 @@ struct
   let do_append_entries state ctx term entries =
     let state = State.set_current_term term state in
     Log.append (State.log state) term entries
-    >>=? fun _log_index ->
+    >>=? fun log_index ->
     Transport.resp_append_entries
       (State.transport state)
       ctx
@@ -85,7 +85,8 @@ struct
     Deferred.return (Ok state)
 
   let rec apply_state_machine state = function
-    | leader_commit when (State.commit_idx state) < leader_commit -> begin
+    | leader_commit
+        when Scow_log_index.compare (State.commit_idx state) leader_commit < 0 -> begin
       let commit_idx = Scow_log_index.succ (State.commit_idx state) in
       Log.get_entry (State.log state) commit_idx
       >>=? fun (_term, elt) ->
