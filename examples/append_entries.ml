@@ -61,7 +61,10 @@ let print_statem_info scow_insts () =
   let print scow_inst =
     Scow.me scow_inst.Scow_inst.scow
     >>=? fun me ->
-    printf "%s: [%s]\n%!" me (string_of_statem scow_inst.Scow_inst.statem);
+    Scow.leader scow_inst.Scow_inst.scow
+    >>=? fun leader_opt ->
+    let leader = Option.value leader_opt ~default:"Unknown" in
+    printf "%s: %s [%s]\n%!" me leader (string_of_statem scow_inst.Scow_inst.statem);
     Deferred.return (Ok ())
   in
   Deferred.List.iter
@@ -104,6 +107,8 @@ let main () =
   every
     (sec 5.0)
     (Fn.compose ignore (print_statem_info scow_insts));
+  after (sec 5.0)
+  >>| fun () ->
   every
     (sec 3.0)
     (Fn.compose ignore (append_entry (ref 0) scow_insts))

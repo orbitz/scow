@@ -36,6 +36,9 @@ struct
   module TMsg = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
+  let replication_caught_up ~next_idx ~match_idx =
+    Scow_log_index.is_equal (Scow_log_index.pred next_idx) match_idx
+
   let count_entries idx entries =
     List.fold_left
       ~f:(fun acc _ -> Scow_log_index.succ acc)
@@ -86,10 +89,10 @@ struct
         ()
       | Error `Invalid_log
       | Error `Closed ->
-        (* FIX: probably want to do something smarter here *)
-        ignore (replicate_log self state node)
-      | Error `Not_found ->
+        ()
+      | Error (`Not_found idx) -> begin
         failwith "nyi"
+      end
 
   let maybe_replicate_log self state node =
     (*
@@ -102,8 +105,7 @@ struct
      * and we do not need to do anything.
      *)
     match (State.next_idx node state, State.match_idx node state) with
-      | (Some next_idx, Some match_idx)
-          when Scow_log_index.is_equal (Scow_log_index.pred next_idx) match_idx -> begin
+      | (Some next_idx, Some match_idx) when replication_caught_up ~next_idx ~match_idx -> begin
         ignore (replicate_log self state node);
         Deferred.return state
       end
@@ -126,6 +128,15 @@ struct
             failwith "nyi"
       end
 
+  let maybe_replicate_next_log self state node =
+    match (State.next_idx node state, State.match_idx node state) with
+      | (Some next_idx, Some match_idx) when replication_caught_up ~next_idx ~match_idx -> begin
+        Deferred.return state
+      end
+      | (_, _) -> begin
+        maybe_replicate_log self state node
+      end
+
   let maybe_send_to_all_nodes self state =
     Deferred.List.fold
       ~f:(maybe_replicate_log self)
@@ -134,6 +145,7 @@ struct
     >>= fun state ->
     let state =
       state
+      |> State.cancel_heartbeat_timeout
       |> State.set_heartbeat_timeout self
     in
     Deferred.return (Ok state)
@@ -219,7 +231,8 @@ struct
   let cancel_pending_append_entries state =
     let (entries, state) = State.remove_all_append_entries state in
     List.iter
-      ~f:State.Append_entry.(fun ae -> Ivar.fill ae.ret (Error `Not_master))
+      ~f:State.Append_entry.(fun ae ->
+        Ivar.fill ae.ret (Error `Not_master))
       entries;
     state
 
@@ -270,7 +283,8 @@ struct
       in
       reply_any_pending_append_entries state
       >>= fun state ->
-      ignore (replicate_log self state node);
+      maybe_replicate_next_log self state node
+      >>= fun state ->
       Deferred.return (Ok state)
     end
     | Ok (term, false) -> begin
@@ -301,18 +315,23 @@ struct
     do_handle_append_entries_resp self state node next_idx curr_next_idx resp
 
   let handle_call self state = function
-    | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
+    | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) -> begin
       handle_rpc_append_entries self state (node, append_entries, ctx)
-    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
+    end
+    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) -> begin
       handle_rpc_request_vote self state (node, request_vote, ctx)
-    | Msg.Append_entry (ret, entry) ->
+    end
+    | Msg.Append_entry (ret, entry) -> begin
       handle_append_entry self state ret entry
+    end
     | Msg.Election_timeout
-    | Msg.Heartbeat ->
+    | Msg.Heartbeat -> begin
       handle_heartbeat self state
+    end
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
-    | Msg.Append_entries_resp (node, next_idx, resp) ->
+    | Msg.Append_entries_resp (node, next_idx, resp) -> begin
       handle_append_entries_resp self state node next_idx resp
+    end
 end
 

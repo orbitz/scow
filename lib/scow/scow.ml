@@ -97,13 +97,16 @@ struct
         | `Invalid_log        -> "Invalid_log"
         | `Invalid_term_store -> "Invalid_term_store"
         | `Invalid_vote_store -> "Invalid_vote_store"
-        | `Not_found          -> "Not_found"
+        | (`Not_found idx)    -> sprintf "Not_found %d" (Scow_log_index.to_int idx)
         | `Transport_error    -> "Transport_error"
       in
       let open Gen_server.Server in
       match reason with
         | Normal -> Deferred.unit
-        | Exn exn  -> begin printf "Exn %s\n%!" (Exn.to_string exn); Deferred.unit end
+        | Exn exn  -> begin
+          printf "Exn %s\n%!" (Exn.to_string exn);
+          Deferred.unit
+        end
         | Error err -> begin
           printf "Error: %s\n" (string_of_error err);
           Deferred.unit
