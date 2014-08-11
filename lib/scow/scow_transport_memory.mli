@@ -11,7 +11,8 @@ module Make : functor (Elt : ELT) -> sig
 
   module Node : sig
     type t = string
-    val compare : t -> t -> int
+    val compare   : t -> t -> int
+    val to_string : t -> string
   end
 
   module Router : sig

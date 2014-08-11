@@ -91,6 +91,9 @@ struct
       | Error `Closed ->
         ()
       | Error (`Not_found idx) -> begin
+        printf "Leader: Not found %d to %s\n%!"
+          (Scow_log_index.to_int idx)
+          (Transport.Node.to_string node);
         failwith "nyi"
       end
 

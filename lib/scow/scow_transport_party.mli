@@ -8,10 +8,11 @@ module Make : functor (Transport : Scow_transport.S) -> sig
 
   module Node : sig
     type t = Transport.Node.t
-    val compare : t -> t -> int
+    val compare   : t -> t -> int
+    val to_string : t -> string
   end
 
-  val create : int -> Time.Span.t -> Transport.t -> t
+  val create : int -> Time.Span.t -> Transport.Node.t -> Transport.t -> t
 
   val listen :
     t ->

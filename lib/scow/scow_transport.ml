@@ -13,7 +13,8 @@ module type S = sig
 
   module Node : sig
     type t
-    val compare : t -> t -> int
+    val compare   : t -> t -> int
+    val to_string : t -> string
   end
 
   val listen : t -> (((Node.t, elt) Msg.t * ctx), [> `Transport_error ]) Deferred.Result.t

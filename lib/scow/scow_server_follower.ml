@@ -144,6 +144,11 @@ struct
       |> State.set_heartbeat_timeout self
     in
     apply_rpc_append_entries self state append_entries_data
+    >>= function
+      | Ok state ->
+        Deferred.return (Ok state)
+      | Error _ ->
+        Deferred.return (Ok state)
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
