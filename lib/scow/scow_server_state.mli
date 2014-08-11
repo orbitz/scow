@@ -14,7 +14,7 @@ sig
     [ `Invalid_log
     | `Invalid_term_store
     | `Invalid_vote_store
-    | `Not_found
+    | `Not_found of Scow_log_index.t
     | `Transport_error
     ]
 

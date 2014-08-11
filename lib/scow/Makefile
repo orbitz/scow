@@ -11,7 +11,7 @@ LIB_MODULES=scow_log_index.ml scow.ml scow_statem.ml \
 	scow_server_follower.ml scow_server_leader.ml \
 	scow_timer.ml scow_transport_memory.ml \
 	scow_store_memory.ml scow_log_memory.ml \
-	scow_transport_faulty.ml
+	scow_transport_faulty.ml scow_transport_timeout.ml
 NON_LIB_MODULES=
 
 BYTE_TARGETS=scow.cma

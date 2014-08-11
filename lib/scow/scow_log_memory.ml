@@ -35,14 +35,14 @@ module Make = functor (Elt : ELT) -> struct
     in
     t.log <- log;
     t.next_idx <- next_idx;
-    Deferred.return (Ok next_idx)
+    Deferred.return (Ok (Scow_log_index.pred next_idx))
 
   let get_entry t log_index =
     match Map.find t.log log_index with
       | Some data ->
         Deferred.return (Ok data)
       | None ->
-        Deferred.return (Error `Not_found)
+        Deferred.return (Error (`Not_found log_index))
 
   let get_term t log_index =
     if Scow_log_index.compare log_index (Scow_log_index.zero ()) = 0 then
@@ -54,11 +54,9 @@ module Make = functor (Elt : ELT) -> struct
     end
 
   let get_log_index_range t =
-    match (Map.min_elt t.log, Map.max_elt t.log) with
-      | (Some (low, _), Some (high, _)) ->
-        Deferred.return (Ok (low, high))
-      | _ ->
-        Deferred.return (Ok (Scow_log_index.zero (), Scow_log_index.zero ()))
+    let min = Scow_log_index.zero () in
+    let max = Scow_log_index.pred t.next_idx in
+    Deferred.return (Ok (min, max))
 
   let rec delete_from_log_index t log_index =
     t.log <- Map.remove t.log log_index;

@@ -49,7 +49,7 @@ struct
           >>=? fun () ->
           Deferred.return (Ok (elt::elts))
         end
-        | Error `Not_found ->
+        | Error (`Not_found _) ->
           (* We assume there are no gaps in the log *)
           Deferred.return (Ok (elt::elts))
         | Error `Invalid_log ->
@@ -75,7 +75,7 @@ struct
   let do_append_entries state ctx term entries =
     let state = State.set_current_term term state in
     Log.append (State.log state) term entries
-    >>=? fun _log_index ->
+    >>=? fun log_index ->
     Transport.resp_append_entries
       (State.transport state)
       ctx
@@ -85,14 +85,21 @@ struct
     Deferred.return (Ok state)
 
   let rec apply_state_machine state = function
-    | leader_commit when (State.commit_idx state) < leader_commit -> begin
+    | leader_commit
+        when Scow_log_index.compare (State.commit_idx state) leader_commit < 0 -> begin
       let commit_idx = Scow_log_index.succ (State.commit_idx state) in
       Log.get_entry (State.log state) commit_idx
-      >>=? fun (_term, elt) ->
-      Statem.apply (State.statem state) elt
-      >>= fun _ ->
-      let state = State.set_commit_idx commit_idx state in
-      apply_state_machine state leader_commit
+      >>= function
+        | Ok (_term, elt) -> begin
+          Statem.apply (State.statem state) elt
+          >>= fun _ ->
+          let state = State.set_commit_idx commit_idx state in
+          apply_state_machine state leader_commit
+        end
+        | Error (`Not_found _) ->
+          Deferred.return (Ok state)
+        | Error err ->
+          Deferred.return (Error err)
     end
     | _ ->
       Deferred.return (Ok state)
@@ -113,9 +120,9 @@ struct
     >>= function
       | Ok state ->
         Deferred.return (Ok state)
+      | Error (`Not_found _)
       | Error `Append_failed
       | Error `Transport_error
-      | Error `Not_found
       | Error `Invalid_log
       | Error `Term_less_than_current
       | Error `Prev_term_does_not_match -> begin
@@ -153,7 +160,7 @@ struct
         >>=? fun () ->
         Deferred.return (Ok state)
       end
-      | _ -> begin
+      | Some _ | None -> begin
         let state =
           state
           |> State.set_voted_for (Some node)

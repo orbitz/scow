@@ -19,7 +19,8 @@ module Statem = struct
 end
 
 module Log = Scow_log_memory.Make(Elt)
-module Transport = Scow_transport_memory.Make(Elt)
+module Memory_transport = Scow_transport_memory.Make(Elt)
+module Transport = Scow_transport_faulty.Make(Memory_transport)
 module Store = Scow_store_memory.Make(Transport.Node)
 
 module Scow = Scow.Make(Statem)(Log)(Store)(Transport)
@@ -31,10 +32,11 @@ module Scow_inst = struct
 end
 
 let create_scow router nodes me =
-  let transport = Transport.create me router in
-  let log = Log.create () in
-  let store = Store.create () in
-  let statem = Statem.create () in
+  let memory_transport = Memory_transport.create me router in
+  let transport = Transport.create (Int.of_string Sys.argv.(2)) memory_transport in
+  let log       = Log.create () in
+  let store     = Store.create () in
+  let statem    = Statem.create () in
   let module Ia = Scow.Init_args in
   let init_args = { Ia.me                       = me
                   ;    nodes                    = nodes
@@ -55,7 +57,9 @@ let create_scow router nodes me =
 let string_of_statem statem =
   String.concat
     ~sep:", "
-    (List.map ~f:Int.to_string (List.sort ~cmp:Int.compare (Set.to_list !statem)))
+    (List.map
+       ~f:Int.to_string
+       (List.sort ~cmp:Int.compare (Set.to_list !statem)))
 
 let print_statem_info scow_insts () =
   let print scow_inst =
@@ -95,10 +99,10 @@ let append_entry next_val scow_insts () =
 
 let rec create_nodes router = function
   | 0 -> []
-  | n -> Transport.Router.add_node router :: create_nodes router (n - 1)
+  | n -> Memory_transport.Router.add_node router :: create_nodes router (n - 1)
 
 let main () =
-  let router = Transport.Router.create () in
+  let router = Memory_transport.Router.create () in
   let nodes  = create_nodes router (Int.of_string Sys.argv.(1)) in
   Deferred.List.map
     ~f:(create_scow router nodes)

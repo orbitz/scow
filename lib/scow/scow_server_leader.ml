@@ -36,15 +36,23 @@ struct
   module TMsg = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  let send_append_entries self state node log_index next_idx_after term entries =
-    Log.get_term
-      (State.log state)
-      (Scow_log_index.pred log_index)
+  let replication_caught_up ~next_idx ~match_idx =
+    Scow_log_index.is_equal (Scow_log_index.pred next_idx) match_idx
+
+  let count_entries idx entries =
+    List.fold_left
+      ~f:(fun acc _ -> Scow_log_index.succ acc)
+      ~init:idx
+      entries
+
+  let send_entries self state node start_idx entries =
+    Log.get_term (State.log state) (Scow_log_index.pred start_idx)
     >>=? fun prev_term ->
+    let next_idx = count_entries start_idx entries in
     let append_entries =
       Scow_rpc.Append_entries.(
-        { term           = term
-        ; prev_log_index = Scow_log_index.pred log_index
+        { term           = State.current_term state
+        ; prev_log_index = Scow_log_index.pred start_idx
         ; prev_log_term  = prev_term
         ; leader_commit  = State.commit_idx state
         ; entries        = entries
@@ -55,26 +63,92 @@ struct
       node
       append_entries
     >>= fun result ->
-    Gen_server.send self (Msg.Op (Msg.Append_entries_resp (node, next_idx_after, result)))
+    Gen_server.send self (Msg.Op (Msg.Append_entries_resp (node, next_idx, result)))
 
-  let replicate_log_to_node self state node log_index =
-    Log.get_entry
-      (State.log state)
-      log_index
-    >>=? fun (term, entry) ->
-    let next_idx_after = Scow_log_index.succ log_index in
-    send_append_entries self state node log_index next_idx_after term [entry]
+  let get_next_log_entries log next_idx =
+    Log.get_log_index_range log
+    >>=? function
+      | (_low, high) when Scow_log_index.compare high next_idx > 0 -> begin
+        Log.get_entry log next_idx
+        >>=? fun (_term, entry) ->
+        Deferred.return (Ok [entry])
+      end
+      | (_log, _high) ->
+        Deferred.return (Ok [])
 
-  let replicate_log self state log_index =
-    List.iter
-      ~f:(fun node ->
-        match State.next_idx node state with
-          | Some next_idx when Scow_log_index.is_equal log_index next_idx ->
-            ignore (replicate_log_to_node self state node log_index)
-          | Some _
-          | None ->
-            ())
+  let do_replicate_log self state node =
+    let next_idx = Option.value_exn (State.next_idx node state) in
+    get_next_log_entries (State.log state) next_idx
+    >>=? fun entries ->
+    send_entries self state node next_idx entries
+
+  let rec replicate_log self state node =
+    do_replicate_log self state node
+    >>| function
+      | Ok _ ->
+        ()
+      | Error `Invalid_log
+      | Error `Closed ->
+        ()
+      | Error (`Not_found idx) -> begin
+        failwith "nyi"
+      end
+
+  let maybe_replicate_log self state node =
+    (*
+     * If the (pred next_idx) equals match_idx then
+     * it means we have sent the entire log to the report and
+     * we need to send a heartbeat.  Also, if next_idx or match_idx
+     * are not present.
+     *
+     * Otherwise, we assume that something is already replicating values
+     * and we do not need to do anything.
+     *)
+    match (State.next_idx node state, State.match_idx node state) with
+      | (Some next_idx, Some match_idx) when replication_caught_up ~next_idx ~match_idx -> begin
+        ignore (replicate_log self state node);
+        Deferred.return state
+      end
+      | (Some _, Some _) ->
+        Deferred.return state
+      | (_, _) -> begin
+        Log.get_log_index_range (State.log state)
+        >>= function
+          | Ok (_low, high) -> begin
+            let next_idx = Scow_log_index.succ high in
+            let state =
+              state
+              |> State.set_next_idx node next_idx
+              |> State.set_match_idx node (Scow_log_index.zero ())
+            in
+            ignore (replicate_log self state node);
+            Deferred.return state
+          end
+          | Error `Invalid_log ->
+            failwith "nyi"
+      end
+
+  let maybe_replicate_next_log self state node =
+    match (State.next_idx node state, State.match_idx node state) with
+      | (Some next_idx, Some match_idx) when replication_caught_up ~next_idx ~match_idx -> begin
+        Deferred.return state
+      end
+      | (_, _) -> begin
+        maybe_replicate_log self state node
+      end
+
+  let maybe_send_to_all_nodes self state =
+    Deferred.List.fold
+      ~f:(maybe_replicate_log self)
+      ~init:state
       (State.nodes state)
+    >>= fun state ->
+    let state =
+      state
+      |> State.cancel_heartbeat_timeout
+      |> State.set_heartbeat_timeout self
+    in
+    Deferred.return (Ok state)
 
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
@@ -142,8 +216,7 @@ struct
             })
         in
         let state = State.add_append_entry ae state in
-        ignore (replicate_log self state log_index);
-        Deferred.return (Ok state)
+        maybe_send_to_all_nodes self state
       | Error `Invalid_log -> begin
         Ivar.fill ret (Error `Invalid_log);
         Deferred.return (Ok state)
@@ -153,50 +226,13 @@ struct
         Deferred.return (Ok state)
       end
 
-  let do_send_heartbeat self state node =
-    Log.get_log_index_range (State.log state)
-    >>= function
-      | Ok (_low, high) -> begin
-        let next_idx = Scow_log_index.succ high in
-        let state =
-          state
-          |> State.set_next_idx node next_idx
-          |> State.set_match_idx node (Scow_log_index.zero ())
-        in
-        let term = State.current_term state in
-        ignore (send_append_entries self state node next_idx next_idx term []);
-        Deferred.return state
-      end
-      | Error `Invalid_log ->
-        failwith "nyi"
-
-  let send_heartbeat self state node =
-    match (State.next_idx node state, State.match_idx node state) with
-      | (Some next_idx, Some match_idx)
-          when Scow_log_index.is_equal (Scow_log_index.pred next_idx) match_idx ->
-        do_send_heartbeat self state node
-      | (Some _, Some _) ->
-        Deferred.return state
-      | _ -> begin
-        do_send_heartbeat self state node
-      end
-
-  let handle_heartbeat self state =
-    Deferred.List.fold
-      ~f:(send_heartbeat self)
-      ~init:state
-      (State.nodes state)
-    >>= fun state ->
-    let state =
-      state
-      |> State.set_heartbeat_timeout self
-    in
-    Deferred.return (Ok state)
+  let handle_heartbeat = maybe_send_to_all_nodes
 
   let cancel_pending_append_entries state =
     let (entries, state) = State.remove_all_append_entries state in
     List.iter
-      ~f:State.Append_entry.(fun ae -> Ivar.fill ae.ret (Error `Not_master))
+      ~f:State.Append_entry.(fun ae ->
+        Ivar.fill ae.ret (Error `Not_master))
       entries;
     state
 
@@ -247,21 +283,22 @@ struct
       in
       reply_any_pending_append_entries state
       >>= fun state ->
-      ignore (replicate_log_to_node self state node next_idx);
+      maybe_replicate_next_log self state node
+      >>= fun state ->
       Deferred.return (Ok state)
     end
     | Ok (term, false) -> begin
       let next_idx = Scow_log_index.pred curr_next_idx in
       let state = State.set_next_idx node next_idx state in
-      ignore (replicate_log_to_node self state node next_idx);
+      ignore (replicate_log self state node);
       Deferred.return (Ok state)
     end
     | Error `Transport_error -> begin
-      ignore (replicate_log_to_node self state node curr_next_idx);
+      ignore (replicate_log self state node);
       Deferred.return (Ok state)
     end
 
-  let handle_append_entries_resp self state node next_id resp =
+  let handle_append_entries_resp self state node next_idx resp =
     let get_curr_next_idx () =
       match State.next_idx node state with
         | Some next_idx ->
@@ -275,21 +312,26 @@ struct
     in
     get_curr_next_idx ()
     >>=? fun curr_next_idx ->
-    do_handle_append_entries_resp self state node next_id curr_next_idx resp
+    do_handle_append_entries_resp self state node next_idx curr_next_idx resp
 
   let handle_call self state = function
-    | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
+    | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) -> begin
       handle_rpc_append_entries self state (node, append_entries, ctx)
-    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
+    end
+    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) -> begin
       handle_rpc_request_vote self state (node, request_vote, ctx)
-    | Msg.Append_entry (ret, entry) ->
+    end
+    | Msg.Append_entry (ret, entry) -> begin
       handle_append_entry self state ret entry
+    end
     | Msg.Election_timeout
-    | Msg.Heartbeat ->
+    | Msg.Heartbeat -> begin
       handle_heartbeat self state
+    end
     | Msg.Received_vote _ ->
       Deferred.return (Ok state)
-    | Msg.Append_entries_resp (node, next_idx, resp) ->
+    | Msg.Append_entries_resp (node, next_idx, resp) -> begin
       handle_append_entries_resp self state node next_idx resp
+    end
 end
 
