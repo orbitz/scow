@@ -7,7 +7,7 @@ module Make = functor (Transport : Scow_transport.S) -> struct
   type ctx = Transport.ctx
   type elt = Transport.elt
 
-  type t = { faultyness             : int
+  type t = { mutable faultyness     : int
            ; duration               : Time.Span.t
            ; transport              : Transport.t
            ; mutable partition_over : unit Ivar.t
@@ -34,6 +34,8 @@ module Make = functor (Transport : Scow_transport.S) -> struct
 
   let listen t =
     if Random.int 1000 < t.faultyness then begin
+      (* Slip to reciprical so we alternate from more faulty to less *)
+      t.faultyness <- 1000 - t.faultyness;
       let partition_over = Ivar.create () in
       t.partition_over <- partition_over;
       printf "%s: Partitioning\n%!" (Transport.Node.to_string t.me);

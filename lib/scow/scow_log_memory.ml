@@ -24,11 +24,11 @@ module Make = functor (Elt : ELT) -> struct
   let create () =
     { log = Log_map.empty; next_idx = Scow_log_index.succ (Scow_log_index.zero ()) }
 
-  let append t term elts =
+  let append t elts =
     let (log, next_idx) =
       List.fold_left
         ~f:(fun (map, next_idx) elt ->
-          let m = Map.add ~key:next_idx ~data:(term, elt) map in
+          let m = Map.add ~key:next_idx ~data:elt map in
           (m, Scow_log_index.succ next_idx))
         ~init:(t.log, t.next_idx)
         elts

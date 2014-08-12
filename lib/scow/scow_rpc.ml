@@ -3,7 +3,7 @@ module Append_entries = struct
                 ; prev_log_index : Scow_log_index.t
                 ; prev_log_term  : Scow_term.t
                 ; leader_commit  : Scow_log_index.t
-                ; entries        : 'elt list
+                ; entries        : (Scow_term.t * 'elt) list
                 }
 end
 

@@ -67,7 +67,7 @@ sig
 
   val commit_idx : t -> Scow_log_index.t
   val set_commit_idx : Scow_log_index.t -> t -> t
-  val update_commit_index : t -> t
+  val update_commit_idx : t -> t
 
   val max_par : t -> int
 

@@ -151,8 +151,12 @@ struct
   let commit_idx t = t.commit_idx
   let set_commit_idx commit_idx t = { t with commit_idx }
 
-  let update_commit_index t =
-    let majority = List.length (nodes t) / 2 + 1 in
+  let update_commit_idx t =
+    (*
+     * Majority is /2 rather than /2 + 1 because we are implicitly
+     * included in this calculation even though we aren't in the list
+     *)
+    let majority = List.length (nodes t) / 2 in
     let highest_committed_majority =
       Node_map.data t.match_idx
       |> List.sort ~cmp:Scow_log_index.compare

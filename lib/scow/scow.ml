@@ -92,7 +92,7 @@ struct
       | Msg.Get _ ->
         Deferred.return (Resp.Ok state)
 
-    let terminate reason _state =
+    let terminate reason state =
       let string_of_error = function
         | `Invalid_log        -> "Invalid_log"
         | `Invalid_term_store -> "Invalid_term_store"
@@ -108,7 +108,9 @@ struct
           Deferred.unit
         end
         | Error err -> begin
-          printf "Error: %s\n" (string_of_error err);
+          printf "Error: %s - %s\n"
+            (string_of_error err)
+            (Transport.Node.to_string (State.me state));
           Deferred.unit
         end
 

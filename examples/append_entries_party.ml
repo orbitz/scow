@@ -126,6 +126,6 @@ let main () =
     (Fn.compose ignore (append_entry (ref 0) scow_insts))
 
 let () =
-  Random.self_init ();
+  Random.init 669477711;
   ignore (main ());
   never_returns (Scheduler.go ());
