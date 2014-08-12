@@ -9,6 +9,7 @@ module Make = functor (Elt : ELT) -> struct
   module Node = struct
     type t = string
     let compare = String.compare
+    let to_string t = t
   end
 
   type ctx = (Scow_term.t * bool) Ivar.t

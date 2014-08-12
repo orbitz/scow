@@ -70,8 +70,8 @@ struct
     >>=? function
       | (_low, high) when Scow_log_index.compare high next_idx > 0 -> begin
         Log.get_entry log next_idx
-        >>=? fun (_term, entry) ->
-        Deferred.return (Ok [entry])
+        >>=? fun term_and_entry ->
+        Deferred.return (Ok [term_and_entry])
       end
       | (_log, _high) ->
         Deferred.return (Ok [])
@@ -129,13 +129,19 @@ struct
       end
 
   let maybe_replicate_next_log self state node =
-    match (State.next_idx node state, State.match_idx node state) with
-      | (Some next_idx, Some match_idx) when replication_caught_up ~next_idx ~match_idx -> begin
-        Deferred.return state
-      end
-      | (_, _) -> begin
+    let next_idx =
+      Option.value
+        (State.next_idx node state)
+        ~default:(Scow_log_index.zero ())
+    in
+    Log.get_log_index_range (State.log state)
+    >>= function
+      | Ok (_low, high) when Scow_log_index.compare next_idx high < 0 ->
         maybe_replicate_log self state node
-      end
+      | Ok (_, _) ->
+        Deferred.return state
+      | Error _ ->
+        failwith "nyi"
 
   let maybe_send_to_all_nodes self state =
     Deferred.List.fold
@@ -204,8 +210,7 @@ struct
   let handle_append_entry self state ret entry =
     Log.append
       (State.log state)
-      (State.current_term state)
-      [entry]
+      [State.current_term state, entry]
     >>= function
       | Ok log_index ->
         let ae =
@@ -263,7 +268,7 @@ struct
       (* This node is ahead of us *)
       let state =
         state
-        |> State.set_leader (Some node)
+        |> State.set_leader None
         |> State.set_current_term term
         |> State.set_state_follower
         |> State.cancel_election_timeout
@@ -279,7 +284,7 @@ struct
         state
         |> State.set_next_idx node next_idx
         |> State.set_match_idx node (Scow_log_index.pred next_idx)
-        |> State.update_commit_index
+        |> State.update_commit_idx
       in
       reply_any_pending_append_entries state
       >>= fun state ->

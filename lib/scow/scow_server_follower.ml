@@ -33,25 +33,26 @@ struct
     >>=? function
       | term when Scow_term.is_equal term prev_log_term ->
         Deferred.return (Ok ())
-      | _ ->
+      | term -> begin
         Deferred.return (Error `Prev_term_does_not_match)
+      end
 
   let rec check_entries_match log log_index = function
     | [] ->
       Deferred.return (Ok [])
-    | elt::elts -> begin
+    | (elt_term, elt)::elts -> begin
       Log.get_entry log log_index
       >>= function
-        | Ok (_term, log_elt) when Log.is_elt_equal log_elt elt ->
+        | Ok (term, log_elt) when Scow_term.is_equal elt_term term && Log.is_elt_equal log_elt elt ->
           check_entries_match log (Scow_log_index.succ log_index) elts
         | Ok (_term, _log_elt) -> begin
           Log.delete_from_log_index log log_index
           >>=? fun () ->
-          Deferred.return (Ok (elt::elts))
+          Deferred.return (Ok ((elt_term, elt)::elts))
         end
         | Error (`Not_found _) ->
           (* We assume there are no gaps in the log *)
-          Deferred.return (Ok (elt::elts))
+          Deferred.return (Ok ((elt_term, elt)::elts))
         | Error `Invalid_log ->
           Deferred.return (Error `Invalid_log)
     end
@@ -72,9 +73,8 @@ struct
     >>=? fun () ->
     delete_if_not_equal state append_entries
 
-  let do_append_entries state ctx term entries =
-    let state = State.set_current_term term state in
-    Log.append (State.log state) term entries
+  let do_append_entries state ctx entries =
+    Log.append (State.log state) entries
     >>=? fun log_index ->
     Transport.resp_append_entries
       (State.transport state)
@@ -109,23 +109,30 @@ struct
     let test_and_do () =
       can_apply_log state append_entries
       >>=? fun entries ->
-      do_append_entries state ctx append_entries.Ae.term entries
+      do_append_entries state ctx entries
       >>=? fun state ->
       apply_state_machine state append_entries.Ae.leader_commit
       >>=? fun state ->
       let term = append_entries.Ae.term in
+      let state = State.set_current_term term state in
       Deferred.return (Ok (State.set_current_term term state))
     in
     test_and_do ()
     >>= function
       | Ok state ->
         Deferred.return (Ok state)
-      | Error (`Not_found _)
-      | Error `Append_failed
-      | Error `Transport_error
-      | Error `Invalid_log
-      | Error `Term_less_than_current
-      | Error `Prev_term_does_not_match -> begin
+      | Error err -> begin
+        let string_of_error = function
+          | `Not_found idx -> sprintf "Not_found %d" (Scow_log_index.to_int idx)
+          | `Append_failed -> "Append_failed"
+          | `Transport_error -> "Transport_error"
+          | `Invalid_log -> "Invalid_log"
+          | `Term_less_than_current -> "Term_less_than_current"
+          | `Prev_term_does_not_match -> "Prev_term_does_not_match"
+        in
+        (* printf "Follower: %s Failed %s\n%!" *)
+        (*   (Transport.Node.to_string (State.me state)) *)
+        (*   (string_of_error err); *)
         Transport.resp_append_entries
           (State.transport state)
           ctx
@@ -144,20 +151,31 @@ struct
       |> State.set_heartbeat_timeout self
     in
     apply_rpc_append_entries self state append_entries_data
+    >>= function
+      | Ok state ->
+        Deferred.return (Ok state)
+      | Error _ ->
+        Deferred.return (Ok state)
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    let request_vote_not_in_future =
-      Scow_term.compare (State.current_term state) request_vote.Rv.term >= 0
+    Log.get_log_index_range (State.log state)
+    >>=? fun (_low, last_log_index) ->
+    Log.get_term (State.log state) last_log_index
+    >>=? fun last_log_term ->
+    let i_am_in_future =
+      Scow_term.compare (State.current_term state) request_vote.Rv.term >= 0 ||
+        Scow_term.compare last_log_term request_vote.Rv.last_log_term > 0 ||
+        Scow_log_index.compare last_log_index request_vote.Rv.last_log_index > 0
     in
     match State.voted_for state with
-      | Some _ when request_vote_not_in_future -> begin
+      | Some _ when i_am_in_future -> begin
         Transport.resp_request_vote
           (State.transport state)
           ctx
           ~term:(State.current_term state)
           ~granted:false
-        >>=? fun () ->
+        >>= fun _ ->
         Deferred.return (Ok state)
       end
       | Some _ | None -> begin
@@ -173,7 +191,7 @@ struct
           ctx
           ~term:(State.current_term state)
           ~granted:true
-        >>=? fun () ->
+        >>= fun _ ->
         Deferred.return (Ok state)
       end
 

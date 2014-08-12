@@ -13,8 +13,7 @@ module Make : functor (Elt : ELT) -> sig
 
   val append :
     t ->
-    Scow_term.t ->
-    elt list ->
+    (Scow_term.t * elt) list ->
     (Scow_log_index.t, [> `Append_failed | `Invalid_log ]) Deferred.Result.t
 
   val get_entry :

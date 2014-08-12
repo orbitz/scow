@@ -1,23 +1,22 @@
+open Core.Std
 open Async.Std
 
-module Msg = struct
-  type ('n, 'elt) t =
-    | Append_entries of ('n * 'elt Scow_rpc.Append_entries.t)
-    | Request_vote   of ('n * Scow_rpc.Request_vote.t)
-end
-
-module type S = sig
-  type ctx
-  type elt
+module Make : functor (Transport : Scow_transport.S) -> sig
+  type elt = Transport.elt
+  type ctx = Transport.ctx
   type t
 
   module Node : sig
-    type t
+    type t = Transport.Node.t
     val compare   : t -> t -> int
     val to_string : t -> string
   end
 
-  val listen : t -> (((Node.t, elt) Msg.t * ctx), [> `Transport_error ]) Deferred.Result.t
+  val create : int -> Time.Span.t -> Transport.Node.t -> Transport.t -> t
+
+  val listen :
+    t ->
+    (((Node.t, elt) Scow_transport.Msg.t * ctx), [> `Transport_error ]) Deferred.Result.t
 
   val resp_append_entries :
     t ->
@@ -44,4 +43,5 @@ module type S = sig
     Node.t ->
     elt Scow_rpc.Append_entries.t ->
     ((Scow_term.t * bool), [> `Transport_error ]) Deferred.Result.t
+
 end
