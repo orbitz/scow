@@ -7,12 +7,26 @@ module Make = functor (Transport : Scow_transport.S) -> struct
   type ctx = Transport.ctx
   type elt = Transport.elt
 
-  type t = { mutable faultyness     : int
+  type t = { faultyness             : int
            ; duration               : Time.Span.t
            ; transport              : Transport.t
            ; mutable partition_over : unit Ivar.t
            ; me                     : Transport.Node.t
            }
+
+  let rec partitioner t =
+    let next_partition = Random.int t.faultyness in
+    let sleep = Float.of_int next_partition in
+    after (sec sleep)
+    >>| fun () ->
+    printf "%s: Partitioning\n%!" (Transport.Node.to_string t.me);
+    let partition_over = Ivar.create () in
+    t.partition_over <- partition_over;
+    after t.duration
+    >>| fun () ->
+    printf "%s: Partition over\n%!" (Transport.Node.to_string t.me);
+    Ivar.fill partition_over ();
+    ignore (partitioner t)
 
   let rec dev_null partition_over transport =
     if Ivar.is_full partition_over then
@@ -30,23 +44,14 @@ module Make = functor (Transport : Scow_transport.S) -> struct
   let create faultyness duration me transport =
     let partition_over = Ivar.create () in
     Ivar.fill partition_over ();
-    { faultyness; duration; me; partition_over; transport }
+    let t = { faultyness; duration; me; partition_over; transport } in
+    ignore (partitioner t);
+    t
 
   let listen t =
-    if Random.int 1000 < t.faultyness then begin
-      (* Slip to reciprical so we alternate from more faulty to less *)
-      t.faultyness <- 1000 - t.faultyness;
-      let partition_over = Ivar.create () in
-      t.partition_over <- partition_over;
-      printf "%s: Partitioning\n%!" (Transport.Node.to_string t.me);
-      ignore (after t.duration >>| fun () -> Ivar.fill partition_over ());
-      dev_null partition_over t.transport
-      >>= fun () ->
-      printf "%s: Partition over\n%!" (Transport.Node.to_string t.me);
-      Transport.listen t.transport
-    end
-    else
-      Transport.listen t.transport
+    dev_null t.partition_over t.transport
+    >>= fun () ->
+    Transport.listen t.transport
 
   let resp_append_entries t ctx ~term ~success =
     if Ivar.is_full t.partition_over then

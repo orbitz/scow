@@ -58,13 +58,17 @@ module Make = functor (Elt : ELT) -> struct
     let max = Scow_log_index.pred t.next_idx in
     Deferred.return (Ok (min, max))
 
-  let rec delete_from_log_index t log_index =
+  let rec do_delete_from_log_index t log_index =
     t.log <- Map.remove t.log log_index;
     match Map.next_key t.log log_index with
       | Some (next_idx, _) ->
-        delete_from_log_index t next_idx
+        do_delete_from_log_index t next_idx
       | None ->
         Deferred.return (Ok ())
+
+  let delete_from_log_index t log_index =
+    t.next_idx <- log_index;
+    do_delete_from_log_index t log_index
 
   let is_elt_equal elt1 elt2 = Elt.compare elt1 elt2 = 0
 end

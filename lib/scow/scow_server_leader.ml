@@ -191,6 +191,7 @@ struct
         |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
+        |> State.set_heartbeat_timeout self
       in
       State.handler
         state
@@ -241,27 +242,50 @@ struct
       entries;
     state
 
-  let reply_any_pending_append_entries state =
-    let (entries, state) =
-      State.remove_append_entries (State.commit_idx state) state
-    in
-    let entries =
-      List.sort
-        ~cmp:(fun l r ->
-          State.Append_entry.(Scow_log_index.compare l.log_index r.log_index))
-        entries
-    in
-    Deferred.List.iter
-      ~f:(fun ae ->
-        let op  = ae.State.Append_entry.op in
+  let reply_to_pending_append_entry res log_index state =
+    match State.remove_append_entry log_index state with
+      | (Some ae, state) -> begin
         let ret = ae.State.Append_entry.ret in
-        Statem.apply (State.statem state) op
-        >>= fun result ->
-        Ivar.fill ret (Ok result);
-        Deferred.unit)
-      entries
-    >>= fun _ ->
-    Deferred.return state
+        Ivar.fill ret (Ok res);
+        state
+      end
+      | (None, state) ->
+        state
+
+  let rec apply_state_machine state =
+    let commit_idx = State.commit_idx state in
+    match State.last_applied state with
+      | last_applied when Scow_log_index.compare last_applied commit_idx < 0 -> begin
+        let to_apply = Scow_log_index.succ last_applied in
+        Log.get_entry (State.log state) to_apply
+        >>= function
+          | Ok (_term, elt) -> begin
+            Statem.apply (State.statem state) elt
+            >>= fun res ->
+            let state =
+              state
+              |> State.set_last_applied to_apply
+              |> reply_to_pending_append_entry res to_apply
+            in
+            apply_state_machine state
+          end
+          | Error _ ->
+            failwith "nyi"
+      end
+      | _ ->
+        Deferred.return state
+
+
+  let update_commit_idx state =
+    let highest_match_idx = State.compute_highest_match_idx state in
+    Log.get_term (State.log state) highest_match_idx
+    >>= function
+      | Ok term when Scow_term.is_equal (State.current_term state) term ->
+        Deferred.return (State.set_commit_idx highest_match_idx state)
+      | Ok _ ->
+        Deferred.return state
+      | Error _ ->
+        failwith "nyi"
 
   let do_handle_append_entries_resp self state node next_idx curr_next_idx = function
     | Ok (term, _) when Scow_term.compare (State.current_term state) term < 0 -> begin
@@ -273,8 +297,6 @@ struct
         |> State.set_state_follower
         |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
-        |> State.clear_next_idx
-        |> State.clear_match_idx
         |> cancel_pending_append_entries
       in
       Deferred.return (Ok state)
@@ -284,9 +306,10 @@ struct
         state
         |> State.set_next_idx node next_idx
         |> State.set_match_idx node (Scow_log_index.pred next_idx)
-        |> State.update_commit_idx
       in
-      reply_any_pending_append_entries state
+      update_commit_idx state
+      >>= fun state ->
+      apply_state_machine state
       >>= fun state ->
       maybe_replicate_next_log self state node
       >>= fun state ->
@@ -299,6 +322,8 @@ struct
       Deferred.return (Ok state)
     end
     | Error `Transport_error -> begin
+      after (sec 0.1)
+      >>= fun () ->
       ignore (replicate_log self state node);
       Deferred.return (Ok state)
     end

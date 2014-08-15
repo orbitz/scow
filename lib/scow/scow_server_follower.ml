@@ -41,9 +41,12 @@ struct
     | [] ->
       Deferred.return (Ok [])
     | (elt_term, elt)::elts -> begin
+      let entry_equal term log_elt =
+        Scow_term.is_equal elt_term term && Log.is_elt_equal log_elt elt
+      in
       Log.get_entry log log_index
       >>= function
-        | Ok (term, log_elt) when Scow_term.is_equal elt_term term && Log.is_elt_equal log_elt elt ->
+        | Ok (term, log_elt) when entry_equal term log_elt ->
           check_entries_match log (Scow_log_index.succ log_index) elts
         | Ok (_term, _log_elt) -> begin
           Log.delete_from_log_index log log_index
@@ -86,14 +89,14 @@ struct
 
   let rec apply_state_machine state = function
     | leader_commit
-        when Scow_log_index.compare (State.commit_idx state) leader_commit < 0 -> begin
-      let commit_idx = Scow_log_index.succ (State.commit_idx state) in
-      Log.get_entry (State.log state) commit_idx
+        when Scow_log_index.compare (State.last_applied state) leader_commit < 0 -> begin
+      let to_apply = Scow_log_index.succ (State.last_applied state) in
+      Log.get_entry (State.log state) to_apply
       >>= function
         | Ok (_term, elt) -> begin
           Statem.apply (State.statem state) elt
           >>= fun _ ->
-          let state = State.set_commit_idx commit_idx state in
+          let state = State.set_last_applied to_apply state in
           apply_state_machine state leader_commit
         end
         | Error (`Not_found _) ->
@@ -164,21 +167,34 @@ struct
     Log.get_term (State.log state) last_log_index
     >>=? fun last_log_term ->
     let i_am_in_future =
-      Scow_term.compare (State.current_term state) request_vote.Rv.term >= 0 ||
+      Scow_term.compare (State.current_term state) request_vote.Rv.term > 0 ||
         Scow_term.compare last_log_term request_vote.Rv.last_log_term > 0 ||
         Scow_log_index.compare last_log_index request_vote.Rv.last_log_index > 0
     in
+    let reply granted =
+      Transport.resp_request_vote
+        (State.transport state)
+        ctx
+        ~term:(State.current_term state)
+        ~granted
+    in
     match State.voted_for state with
-      | Some _ when i_am_in_future -> begin
-        Transport.resp_request_vote
-          (State.transport state)
-          ctx
-          ~term:(State.current_term state)
-          ~granted:false
+      | Some _ | None when i_am_in_future -> begin
+        reply false
         >>= fun _ ->
         Deferred.return (Ok state)
       end
-      | Some _ | None -> begin
+      | Some voted_node when Transport.Node.compare node voted_node = 0 -> begin
+        reply true
+        >>= fun _ ->
+        Deferred.return (Ok state)
+      end
+      | Some _ -> begin
+        reply false
+        >>= fun _ ->
+        Deferred.return (Ok state)
+      end
+      | None -> begin
         let state =
           state
           |> State.set_voted_for (Some node)
@@ -186,11 +202,7 @@ struct
         in
         Store.store_vote (State.store state) (Some node)
         >>=? fun () ->
-        Transport.resp_request_vote
-          (State.transport state)
-          ctx
-          ~term:(State.current_term state)
-          ~granted:true
+        reply true
         >>= fun _ ->
         Deferred.return (Ok state)
       end

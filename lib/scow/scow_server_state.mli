@@ -67,7 +67,10 @@ sig
 
   val commit_idx : t -> Scow_log_index.t
   val set_commit_idx : Scow_log_index.t -> t -> t
-  val update_commit_idx : t -> t
+  val compute_highest_match_idx : t -> Scow_log_index.t
+
+  val last_applied     : t -> Scow_log_index.t
+  val set_last_applied : Scow_log_index.t -> t -> t
 
   val max_par : t -> int
 
@@ -93,7 +96,7 @@ sig
   val clear_votes : t -> t
 
   val add_append_entry          : Append_entry.t -> t -> t
-  val remove_append_entries     : Scow_log_index.t -> t -> (Append_entry.t list * t)
+  val remove_append_entry       : Scow_log_index.t -> t -> (Append_entry.t option * t)
   val remove_all_append_entries : t -> (Append_entry.t list * t)
 
   val next_idx       : Transport.Node.t -> t -> Scow_log_index.t option

@@ -9,12 +9,12 @@ end
 module Statem = struct
   type op = Elt.t
   type ret = unit
-  type t = Int.Set.t ref
+  type t = int ref
 
-  let create () = ref Int.Set.empty
+  let create () = ref 0
 
   let apply t op =
-    t := Set.add !t op;
+    t := !t + op;
     Deferred.unit
 end
 
@@ -62,13 +62,6 @@ let create_scow router nodes me =
     | Ok scow -> Deferred.return Scow_inst.({scow; statem})
     | Error _ -> failwith "nyi"
 
-let string_of_statem statem =
-  String.concat
-    ~sep:", "
-    (List.map
-       ~f:Int.to_string
-       (List.sort ~cmp:Int.compare (Set.to_list !statem)))
-
 let print_statem_info scow_insts () =
   let print scow_inst =
     Scow.me scow_inst.Scow_inst.scow
@@ -76,7 +69,8 @@ let print_statem_info scow_insts () =
     Scow.leader scow_inst.Scow_inst.scow
     >>=? fun leader_opt ->
     let leader = Option.value leader_opt ~default:"Unknown" in
-    printf "%s: %s [%s]\n%!" me leader (string_of_statem scow_inst.Scow_inst.statem);
+    let statem = scow_inst.Scow_inst.statem in
+    printf "%s: %s %d\n%!" me leader !statem;
     Deferred.return (Ok ())
   in
   Deferred.List.iter
