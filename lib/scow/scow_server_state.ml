@@ -71,7 +71,7 @@ struct
            ; timeout_rand    : Time.Span.t
            ; next_idx        : Scow_log_index.t Node_map.t
            ; match_idx       : Scow_log_index.t Node_map.t
-           ; append_entries  : Append_entry.t list
+           ; append_entries  : (Scow_log_index.t * Append_entry.t) list
            }
 
   module Init_args = struct
@@ -151,7 +151,7 @@ struct
   let commit_idx t = t.commit_idx
   let set_commit_idx commit_idx t = { t with commit_idx }
 
-  let update_commit_idx t =
+  let compute_highest_match_idx t =
     (*
      * Majority is /2 rather than /2 + 1 because we are implicitly
      * included in this calculation even though we aren't in the list
@@ -165,12 +165,14 @@ struct
       |> List.rev
     in
     match highest_committed_majority with
-      | [] -> t
       | (commit_idx::_) as all when List.length all = majority ->
-        { t with commit_idx }
+        commit_idx
       | _ ->
         (* In this case, match_idx is not full of values yet *)
-        t
+        t.commit_idx
+
+  let last_applied t = t.last_applied
+  let set_last_applied last_applied t = { t with last_applied }
 
   let max_par t = t.max_par_repl
 
@@ -228,23 +230,32 @@ struct
   let clear_votes t = { t with votes_for_me = [] }
 
   let add_append_entry append_entry t =
-    { t with append_entries = append_entry::t.append_entries }
+    let entry = (append_entry.Append_entry.log_index, append_entry) in
+    { t with append_entries = entry::t.append_entries }
 
-  let remove_append_entries log_index t =
-    let gt ae =
-      Scow_log_index.compare ae.Append_entry.log_index log_index <= 0
+  let remove_append_entry log_index t =
+    (* This scans the list twice, maybe not ideal *)
+    let append_entry =
+      List.Assoc.find
+        ~equal:Scow_log_index.is_equal
+        t.append_entries
+        log_index
     in
-    match List.filter ~f:gt t.append_entries with
-      | [] ->
-        ([], t)
-      | aes ->
-        let append_entries =
-          List.filter ~f:(Fn.compose not gt) t.append_entries
-        in
-        (aes, { t with append_entries })
+    let append_entries =
+      List.Assoc.remove
+        ~equal:Scow_log_index.is_equal
+        t.append_entries
+        log_index
+    in
+    (append_entry, { t with append_entries })
 
   let remove_all_append_entries t =
-    (t.append_entries, { t with append_entries = [] })
+    let append_entries =
+      List.map
+        ~f:snd
+        t.append_entries
+    in
+    (append_entries, { t with append_entries = [] })
 
   let next_idx node t =
     Map.find t.next_idx node

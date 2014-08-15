@@ -43,6 +43,7 @@ struct
         |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
+        |> State.set_heartbeat_timeout self
       in
       State.handler
         state
@@ -74,6 +75,8 @@ struct
       |> State.set_state_leader
       |> State.cancel_election_timeout
       |> State.cancel_heartbeat_timeout
+      |> State.clear_next_idx
+      |> State.clear_match_idx
     in
     State.handler
       state
