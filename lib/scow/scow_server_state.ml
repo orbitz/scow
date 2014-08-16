@@ -37,7 +37,6 @@ struct
     type errors = [ `Not_master | `Append_failed | `Invalid_log ]
     type ret = (Statem.ret, errors) Result.t
     type t = { log_index : Scow_log_index.t
-             ; op        : Statem.op
              ; ret       : ret Ivar.t
              }
   end
