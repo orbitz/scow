@@ -166,6 +166,8 @@ struct
         |> State.set_state_follower
         |> State.set_heartbeat_timeout self
       in
+      Store.store_vote (State.store state) None
+      >>=? fun () ->
       State.handler
         state
         self
@@ -193,6 +195,8 @@ struct
         |> State.cancel_heartbeat_timeout
         |> State.set_heartbeat_timeout self
       in
+      Store.store_vote (State.store state) None
+      >>=? fun () ->
       State.handler
         state
         self
@@ -291,13 +295,15 @@ struct
       (* This node is ahead of us *)
       let state =
         state
-        |> State.set_leader None
+        |> State.set_leader (Some node)
         |> State.set_current_term term
         |> State.set_state_follower
         |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
         |> cancel_pending_append_entries
       in
+      Store.store_vote (State.store state) None
+      >>=? fun () ->
       Deferred.return (Ok state)
     end
     | Ok (term, true) -> begin

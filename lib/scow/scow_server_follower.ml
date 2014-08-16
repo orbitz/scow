@@ -173,7 +173,7 @@ struct
       | Error _ ->
         Deferred.return (Ok state)
 
-  let handle_rpc_request_vote self state (node, request_vote, ctx) =
+  let do_handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
     Log.get_log_index_range (State.log state)
     >>=? fun (_low, last_log_index) ->
@@ -219,6 +219,33 @@ struct
         >>= fun _ ->
         Deferred.return (Ok state)
       end
+
+  let handle_rpc_request_vote self state (node, request_vote, ctx) =
+    let module Rv = Scow_rpc.Request_vote in
+    let update_term () =
+      let vote_term_in_future =
+        Scow_term.compare (State.current_term state) request_vote.Rv.term < 0
+      in
+      if vote_term_in_future then begin
+        let state =
+          state
+          |> State.set_leader (Some node)
+          |> State.set_voted_for None
+          |> State.set_current_term request_vote.Rv.term
+          |> State.cancel_election_timeout
+          |> State.cancel_heartbeat_timeout
+          |> State.set_heartbeat_timeout self
+        in
+        Store.store_vote (State.store state) None
+        >>=? fun () ->
+        Deferred.return (Ok state)
+      end
+      else
+        Deferred.return (Ok state)
+    in
+    update_term ()
+    >>=? fun state ->
+    do_handle_rpc_request_vote self state (node, request_vote, ctx)
 
   let handle_append_entries _self state ret =
     Ivar.fill ret (Error `Not_master);
