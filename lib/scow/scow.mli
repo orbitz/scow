@@ -18,7 +18,6 @@ sig
              ; transport                : Transport.t
              ; log                      : Log.t
              ; store                    : Store.t
-             ; max_parallel_replication : int
              ; timeout                  : Time.Span.t
              ; timeout_rand             : Time.Span.t
              }
