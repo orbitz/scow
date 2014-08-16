@@ -267,6 +267,7 @@ struct
 
   let set_state_follower t =
     { t with handler = t.states.States.follower }
+    |> set_voted_for None
 
   let set_state_candidate t =
     { t with handler = t.states.States.candidate }
