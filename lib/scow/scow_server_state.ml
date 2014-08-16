@@ -55,7 +55,6 @@ struct
            ; transport       : Transport.t
            ; log             : Log.t
            ; store           : Store.t
-           ; max_par_repl    : int
            ; current_term    : Scow_term.t
            ; commit_idx      : Scow_log_index.t
            ; last_applied    : Scow_log_index.t
@@ -80,7 +79,6 @@ struct
               ; transport    : Transport.t
               ; log          : Log.t
               ; store        : Store.t
-              ; max_par_repl : int
               ; timeout      : Time.Span.t
               ; timeout_rand : Time.Span.t
               ; follower     : t handler
@@ -110,7 +108,6 @@ struct
           ; transport       = init_args.Ia.transport
           ; log             = init_args.Ia.log
           ; store           = init_args.Ia.store
-          ; max_par_repl    = init_args.Ia.max_par_repl
           ; current_term    = current_term
           ; commit_idx      = Scow_log_index.zero ()
           ; last_applied    = Scow_log_index.zero ()
@@ -172,8 +169,6 @@ struct
 
   let last_applied t = t.last_applied
   let set_last_applied last_applied t = { t with last_applied }
-
-  let max_par t = t.max_par_repl
 
   let voted_for t = t.voted_for
   let set_voted_for voted_for t = { t with voted_for }

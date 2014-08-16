@@ -36,15 +36,14 @@ let create_scow router nodes me =
   let store = Store.create () in
   let statem = Statem.create () in
   let module Ia = Scow.Init_args in
-  let init_args = { Ia.me                       = me
-                  ;    nodes                    = nodes
-                  ;    statem                   = statem
-                  ;    transport                = transport
-                  ;    log                      = log
-                  ;    store                    = store
-                  ;    max_parallel_replication = 3
-                  ;    timeout                  = sec 1.0
-                  ;    timeout_rand             = sec 2.0
+  let init_args = { Ia.me           = me
+                  ;    nodes        = nodes
+                  ;    statem       = statem
+                  ;    transport    = transport
+                  ;    log          = log
+                  ;    store        = store
+                  ;    timeout      = sec 1.0
+                  ;    timeout_rand = sec 2.0
                   }
   in
   Scow.start init_args

@@ -16,7 +16,6 @@ struct
              ; transport                : Transport.t
              ; log                      : Log.t
              ; store                    : Store.t
-             ; max_parallel_replication : int
              ; timeout                  : Time.Span.t
              ; timeout_rand             : Time.Span.t
              }
@@ -58,7 +57,6 @@ struct
                          ; transport    = init_args.Init_args.transport
                          ; log          = init_args.Init_args.log
                          ; store        = init_args.Init_args.store
-                         ; max_par_repl = init_args.Init_args.max_parallel_replication
                          ; timeout      = init_args.Init_args.timeout
                          ; timeout_rand = init_args.Init_args.timeout_rand
                          ; follower     = Follower.handle_call

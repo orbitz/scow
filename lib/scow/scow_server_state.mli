@@ -41,7 +41,6 @@ sig
               ; transport    : Transport.t
               ; log          : Log.t
               ; store        : Store.t
-              ; max_par_repl : int
               ; timeout      : Time.Span.t
               ; timeout_rand : Time.Span.t
               ; follower     : t handler
@@ -70,8 +69,6 @@ sig
 
   val last_applied     : t -> Scow_log_index.t
   val set_last_applied : Scow_log_index.t -> t -> t
-
-  val max_par : t -> int
 
   val me : t -> Transport.Node.t
   val nodes : t -> Transport.Node.t list
