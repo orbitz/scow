@@ -217,7 +217,6 @@ struct
         let ae =
           State.Append_entry.(
             { log_index = log_index
-            ; op        = entry
             ; ret       = ret
             })
         in

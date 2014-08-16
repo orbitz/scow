@@ -71,12 +71,9 @@ struct
      *)
     let state =
       state
-      |> State.set_leader (Some (State.me state))
       |> State.set_state_leader
       |> State.cancel_election_timeout
       |> State.cancel_heartbeat_timeout
-      |> State.clear_next_idx
-      |> State.clear_match_idx
     in
     State.handler
       state
@@ -100,7 +97,6 @@ struct
   let handle_heartbeat_timeout self state =
     state
     |> State.set_state_follower
-    |> State.clear_votes
     |> State.set_election_timeout self
     |> Result.return
     |> Deferred.return

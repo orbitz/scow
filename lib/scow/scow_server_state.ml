@@ -37,7 +37,6 @@ struct
     type errors = [ `Not_master | `Append_failed | `Invalid_log ]
     type ret = (Statem.ret, errors) Result.t
     type t = { log_index : Scow_log_index.t
-             ; op        : Statem.op
              ; ret       : ret Ivar.t
              }
   end
@@ -211,15 +210,6 @@ struct
     cancel_timeout t.heartbeat_timer;
     { t with heartbeat_timer = None }
 
-  let set_state_follower t =
-    { t with handler = t.states.States.follower }
-
-  let set_state_candidate t =
-    { t with handler = t.states.States.candidate }
-
-  let set_state_leader t =
-    { t with handler = t.states.States.leader }
-
   let record_vote node t =
     { t with votes_for_me = node::t.votes_for_me }
 
@@ -274,4 +264,20 @@ struct
 
   let clear_match_idx t =
     { t with match_idx = Node_map.empty }
+
+  let set_state_follower t =
+    { t with handler = t.states.States.follower }
+
+  let set_state_candidate t =
+    { t with handler = t.states.States.candidate }
+    |> set_leader None
+    |> clear_votes
+    |> record_vote (me t)
+
+  let set_state_leader t =
+    { t with handler = t.states.States.leader }
+    |> clear_next_idx
+    |> clear_match_idx
+    |> set_leader (Some (me t))
+
 end

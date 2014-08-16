@@ -16,6 +16,19 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
+  let request_votes self vote_request transport nodes =
+    let send_request_vote node =
+      Transport.request_vote
+        transport
+        node
+        vote_request
+      >>=? fun (term, success) ->
+      Gen_server.send self (Msg.Op (Msg.Received_vote (node, term, success)))
+    in
+    List.iter
+      ~f:(fun node -> ignore (send_request_vote node))
+      nodes
+
   let is_valid_term state append_entries =
     let module Ae    = Scow_rpc.Append_entries in
     let current_term = State.current_term state in
@@ -189,7 +202,7 @@ struct
         >>= fun _ ->
         Deferred.return (Ok state)
       end
-      | Some _ -> begin
+      | Some voted_for -> begin
         reply false
         >>= fun _ ->
         Deferred.return (Ok state)
@@ -211,19 +224,6 @@ struct
     Ivar.fill ret (Error `Not_master);
     Deferred.return (Ok state)
 
-  let request_votes self vote_request transport nodes =
-    let send_request_vote node =
-      Transport.request_vote
-        transport
-        node
-        vote_request
-      >>=? fun (term, success) ->
-      Gen_server.send self (Msg.Op (Msg.Received_vote (node, term, success)))
-    in
-    List.iter
-      ~f:(fun node -> ignore (send_request_vote node))
-      nodes
-
   let handle_election_timeout self state =
     let term = Scow_term.succ (State.current_term state) in
     Log.get_log_index_range (State.log state)
@@ -242,12 +242,9 @@ struct
     Store.store_term (State.store state) term
     >>=? fun () ->
     state
-    |> State.set_leader None
     |> State.set_state_candidate
     |> State.set_current_term term
     |> State.set_heartbeat_timeout self
-    |> State.clear_votes
-    |> State.record_vote (State.me state)
     |> Result.return
     |> Deferred.return
 
