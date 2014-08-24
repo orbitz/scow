@@ -18,9 +18,12 @@ NON_LIB_MODULES=
 BYTE_TARGETS=scow.cma
 NATIVE_TARGETS=scow.cmxa
 
-.PHONY: all test
+.PHONY: all test install
 
 all: native-code byte-code
+
+install: all
+	ocamlfind install scow META $(BYTE_TARGETS) $(NATIVE_TARGETS) scow.a *.cmx *.cmi *.mli
 
 test:
 
