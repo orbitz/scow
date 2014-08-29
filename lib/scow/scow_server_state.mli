@@ -43,6 +43,7 @@ sig
               ; store        : Store.t
               ; timeout      : Time.Span.t
               ; timeout_rand : Time.Span.t
+              ; notify       : Scow_notify.t
               ; follower     : t handler
               ; candidate    : t handler
               ; leader       : t handler
@@ -62,6 +63,8 @@ sig
   val log : t -> Log.t
   val store : t -> Store.t
   val statem : t -> Statem.t
+
+  val notify : t -> Scow_notify.t
 
   val commit_idx : t -> Scow_log_index.t
   val set_commit_idx : Scow_log_index.t -> t -> t

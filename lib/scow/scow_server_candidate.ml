@@ -36,7 +36,7 @@ struct
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then
+    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then begin
       let state =
         state
         |> State.set_state_follower
@@ -45,11 +45,14 @@ struct
         |> State.cancel_heartbeat_timeout
         |> State.set_heartbeat_timeout self
       in
+      State.notify state Scow_notify.Event.(State_change (Candidate, Follower))
+      >>= fun () ->
       State.handler
         state
         self
         state
         (Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx))
+    end
     else begin
       Transport.resp_request_vote
         (State.transport state)
@@ -75,6 +78,8 @@ struct
       |> State.cancel_election_timeout
       |> State.cancel_heartbeat_timeout
     in
+    State.notify state Scow_notify.Event.(State_change (Candidate, Leader))
+    >>= fun () ->
     State.handler
       state
       self
@@ -95,6 +100,8 @@ struct
     Deferred.return (Ok state)
 
   let handle_heartbeat_timeout self state =
+    State.notify state Scow_notify.Event.(State_change (Candidate, Follower))
+    >>= fun () ->
     state
     |> State.set_state_follower
     |> State.set_election_timeout self

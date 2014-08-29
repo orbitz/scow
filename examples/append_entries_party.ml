@@ -54,6 +54,7 @@ let create_scow router nodes me =
                   ;    store        = store
                   ;    timeout      = sec 1.0
                   ;    timeout_rand = sec 2.0
+                  ;    notify       = Scow_notify.dummy
                   }
   in
   Scow.start init_args

@@ -158,7 +158,7 @@ struct
 
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
-    if Scow_term.compare (State.current_term state) append_entries.Ae.term < 0 then
+    if Scow_term.compare (State.current_term state) append_entries.Ae.term < 0 then begin
       let state =
         state
         |> State.set_leader (Some node)
@@ -166,6 +166,8 @@ struct
         |> State.set_state_follower
         |> State.set_heartbeat_timeout self
       in
+      State.notify state Scow_notify.Event.(State_change (Leader, Follower))
+      >>= fun () ->
       Store.store_vote (State.store state) None
       >>=? fun () ->
       State.handler
@@ -173,6 +175,7 @@ struct
         self
         state
         (Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx))
+    end
     else begin
       Transport.resp_append_entries
         (State.transport state)
@@ -185,7 +188,7 @@ struct
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then
+    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then begin
       let state =
         state
         |> State.set_leader (Some node)
@@ -195,6 +198,8 @@ struct
         |> State.cancel_heartbeat_timeout
         |> State.set_heartbeat_timeout self
       in
+      State.notify state Scow_notify.Event.(State_change (Leader, Follower))
+      >>= fun () ->
       Store.store_vote (State.store state) None
       >>=? fun () ->
       State.handler
@@ -202,6 +207,7 @@ struct
         self
         state
         (Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx))
+    end
     else begin
       Transport.resp_request_vote
         (State.transport state)
@@ -217,7 +223,7 @@ struct
       (State.log state)
       [State.current_term state, entry]
     >>= function
-      | Ok log_index ->
+      | Ok log_index -> begin
         let ae =
           State.Append_entry.(
             { log_index = log_index
@@ -225,7 +231,10 @@ struct
             })
         in
         let state = State.add_append_entry ae state in
+        State.notify state (Scow_notify.Event.Append_entry (log_index, 1))
+        >>= fun () ->
         maybe_send_to_all_nodes self state
+      end
       | Error `Invalid_log -> begin
         Ivar.fill ret (Error `Invalid_log);
         Deferred.return (Ok state)
@@ -278,13 +287,21 @@ struct
       | _ ->
         Deferred.return state
 
+  let maybe_notify_commit_idx state highest_match_idx =
+    if not (Scow_log_index.is_equal (State.commit_idx state) highest_match_idx) then
+      State.notify state (Scow_notify.Event.Commit_idx highest_match_idx)
+    else
+      Deferred.unit
 
   let update_commit_idx state =
     let highest_match_idx = State.compute_highest_match_idx state in
     Log.get_term (State.log state) highest_match_idx
     >>= function
-      | Ok term when Scow_term.is_equal (State.current_term state) term ->
+      | Ok term when Scow_term.is_equal (State.current_term state) term -> begin
+        maybe_notify_commit_idx state highest_match_idx
+        >>= fun () ->
         Deferred.return (State.set_commit_idx highest_match_idx state)
+      end
       | Ok _ ->
         Deferred.return state
       | Error _ ->
@@ -302,6 +319,8 @@ struct
         |> State.set_heartbeat_timeout self
         |> cancel_pending_append_entries
       in
+      State.notify state Scow_notify.Event.(State_change (Leader, Follower))
+      >>= fun () ->
       Store.store_vote (State.store state) None
       >>=? fun () ->
       Deferred.return (Ok state)
