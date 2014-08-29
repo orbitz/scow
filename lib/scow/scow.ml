@@ -10,14 +10,15 @@ module Make =
                  and  type elt    = Log.elt) ->
 struct
   module Init_args = struct
-    type t = { me                       : Transport.Node.t
-             ; nodes                    : Transport.Node.t list
-             ; statem                   : Statem.t
-             ; transport                : Transport.t
-             ; log                      : Log.t
-             ; store                    : Store.t
-             ; timeout                  : Time.Span.t
-             ; timeout_rand             : Time.Span.t
+    type t = { me           : Transport.Node.t
+             ; nodes        : Transport.Node.t list
+             ; statem       : Statem.t
+             ; transport    : Transport.t
+             ; log          : Log.t
+             ; store        : Store.t
+             ; timeout      : Time.Span.t
+             ; timeout_rand : Time.Span.t
+             ; notify       : Scow_notify.t
              }
   end
 
@@ -59,6 +60,7 @@ struct
                          ; store        = init_args.Init_args.store
                          ; timeout      = init_args.Init_args.timeout
                          ; timeout_rand = init_args.Init_args.timeout_rand
+                         ; notify       = init_args.Init_args.notify
                          ; follower     = Follower.handle_call
                          ; candidate    = Candidate.handle_call
                          ; leader       = Leader.handle_call
@@ -95,7 +97,7 @@ struct
         | `Invalid_log        -> "Invalid_log"
         | `Invalid_term_store -> "Invalid_term_store"
         | `Invalid_vote_store -> "Invalid_vote_store"
-        | (`Not_found idx)    -> sprintf "Not_found %d" (Scow_log_index.to_int idx)
+        | `Not_found idx      -> sprintf "Not_found %d" (Scow_log_index.to_int idx)
         | `Transport_error    -> "Transport_error"
       in
       let open Gen_server.Server in

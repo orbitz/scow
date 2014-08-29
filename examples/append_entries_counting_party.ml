@@ -32,6 +32,42 @@ module Scow_inst = struct
            }
 end
 
+let notify me event =
+  let open Scow_notify.Event in
+  let string_of_state = function
+    | Follower  -> "Follower"
+    | Candidate -> "Candidate"
+    | Leader    -> "Leader"
+  in
+  let string_of_event = function
+    | Started ->
+      Some "Started"
+    | State_change (now, becoming) ->
+      Some (sprintf "%s -> %s"
+              (string_of_state now)
+              (string_of_state becoming))
+    | Append_entry (_, 0) ->
+      None
+    | Append_entry (idx, _) ->
+      Some (sprintf "Append_entry %d"
+              (Scow_log_index.to_int idx))
+    | Commit_idx idx ->
+      Some (sprintf "Commit_idx %d"
+              (Scow_log_index.to_int idx))
+  in
+  let print () =
+    match string_of_event event with
+      | Some str -> begin
+        printf "%s: %s\n%!"
+        (Transport.Node.to_string me)
+          str
+      end
+      | None ->
+        ()
+  in
+  print ();
+  Deferred.unit
+
 let create_scow router nodes me =
   let memory_transport  = Memory_transport.create me router in
   let timeout_transport = Timeout_transport.create (sec 1.) memory_transport in
@@ -54,6 +90,7 @@ let create_scow router nodes me =
                   ;    store        = store
                   ;    timeout      = sec 1.0
                   ;    timeout_rand = sec 2.0
+                  ;    notify       = notify me
                   }
   in
   Scow.start init_args

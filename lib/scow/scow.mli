@@ -20,6 +20,7 @@ sig
              ; store                    : Store.t
              ; timeout                  : Time.Span.t
              ; timeout_rand             : Time.Span.t
+             ; notify                   : Scow_notify.t
              }
   end
 

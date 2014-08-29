@@ -92,6 +92,8 @@ struct
   let do_append_entries state ctx entries =
     Log.append (State.log state) entries
     >>=? fun log_index ->
+    State.notify state (Scow_notify.Event.Append_entry (log_index, List.length entries))
+    >>= fun () ->
     Transport.resp_append_entries
       (State.transport state)
       ctx
@@ -137,15 +139,15 @@ struct
     >>= function
       | Ok state ->
         Deferred.return (Ok state)
-      | Error err -> begin
-        let string_of_error = function
-          | `Not_found idx -> sprintf "Not_found %d" (Scow_log_index.to_int idx)
-          | `Append_failed -> "Append_failed"
-          | `Transport_error -> "Transport_error"
-          | `Invalid_log -> "Invalid_log"
-          | `Term_less_than_current -> "Term_less_than_current"
-          | `Prev_term_does_not_match -> "Prev_term_does_not_match"
-        in
+      | Error _ -> begin
+        (* let string_of_error = function *)
+        (*   | `Not_found idx -> sprintf "Not_found %d" (Scow_log_index.to_int idx) *)
+        (*   | `Append_failed -> "Append_failed" *)
+        (*   | `Transport_error -> "Transport_error" *)
+        (*   | `Invalid_log -> "Invalid_log" *)
+        (*   | `Term_less_than_current -> "Term_less_than_current" *)
+        (*   | `Prev_term_does_not_match -> "Prev_term_does_not_match" *)
+        (* in *)
         (* printf "Follower: %s Failed %s\n%!" *)
         (*   (Transport.Node.to_string (State.me state)) *)
         (*   (string_of_error err); *)
@@ -268,6 +270,8 @@ struct
     >>=? fun () ->
     Store.store_term (State.store state) term
     >>=? fun () ->
+    State.notify state Scow_notify.Event.(State_change (Follower, Candidate))
+    >>= fun () ->
     state
     |> State.set_state_candidate
     |> State.set_current_term term

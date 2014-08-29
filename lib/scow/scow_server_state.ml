@@ -67,6 +67,7 @@ struct
            ; heartbeat_timer : Scow_timer.t option
            ; timeout         : Time.Span.t
            ; timeout_rand    : Time.Span.t
+           ; notify          : Scow_notify.t
            ; next_idx        : Scow_log_index.t Node_map.t
            ; match_idx       : Scow_log_index.t Node_map.t
            ; append_entries  : (Scow_log_index.t * Append_entry.t) list
@@ -81,6 +82,7 @@ struct
               ; store        : Store.t
               ; timeout      : Time.Span.t
               ; timeout_rand : Time.Span.t
+              ; notify       : Scow_notify.t
               ; follower     : t handler
               ; candidate    : t handler
               ; leader       : t handler
@@ -123,6 +125,7 @@ struct
           ; heartbeat_timer = None
           ; timeout         = init_args.Ia.timeout
           ; timeout_rand    = init_args.Ia.timeout_rand
+          ; notify          = init_args.Ia.notify
           ; next_idx        = Node_map.empty
           ; match_idx       = Node_map.empty
           ; append_entries  = []
@@ -143,6 +146,8 @@ struct
   let log t = t.log
   let store t = t.store
   let statem t = t.statem
+
+  let notify t = t.notify
 
   let commit_idx t = t.commit_idx
   let set_commit_idx commit_idx t = { t with commit_idx }
