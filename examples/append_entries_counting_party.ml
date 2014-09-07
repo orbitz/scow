@@ -9,12 +9,12 @@ end
 module Statem = struct
   type op = Elt.t
   type ret = unit
-  type t = int ref
+  type t = Int.Set.t ref
 
-  let create () = ref 0
+  let create () = ref Int.Set.empty
 
   let apply t op =
-    t := !t + op;
+    t := Set.add !t op;
     Deferred.unit
 end
 
@@ -106,7 +106,8 @@ let print_statem_info scow_insts () =
     >>=? fun leader_opt ->
     let leader = Option.value leader_opt ~default:"Unknown" in
     let statem = scow_inst.Scow_inst.statem in
-    printf "%s: %s %d\n%!" me leader !statem;
+    let sum    = List.fold_left ~f:(+) ~init:0 (Set.to_list !statem) in
+    printf "%s: %s %d\n%!" me leader sum;
     Deferred.return (Ok ())
   in
   Deferred.List.iter

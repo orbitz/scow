@@ -56,9 +56,6 @@ sig
 
   val handler : t -> t handler
 
-  val current_term : t -> Scow_term.t
-  val set_current_term : Scow_term.t -> t -> t
-
   val transport : t -> Transport.t
   val log : t -> Log.t
   val store : t -> Store.t
@@ -77,9 +74,6 @@ sig
   val nodes : t -> Transport.Node.t list
   val leader : t -> Transport.Node.t option
   val set_leader : Transport.Node.t option -> t -> t
-
-  val voted_for : t -> Transport.Node.t option
-  val set_voted_for : Transport.Node.t option -> t -> t
 
   val set_heartbeat_timeout    : msg Gen_server.t -> t -> t
   val set_election_timeout     : msg Gen_server.t -> t -> t

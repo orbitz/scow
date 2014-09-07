@@ -48,10 +48,12 @@ struct
   let send_entries self state node start_idx entries =
     Log.get_term (State.log state) (Scow_log_index.pred start_idx)
     >>=? fun prev_term ->
+    Store.load_term (State.store state)
+    >>=? fun current_term ->
     let next_idx = count_entries start_idx entries in
     let append_entries =
       Scow_rpc.Append_entries.(
-        { term           = State.current_term state
+        { term           = Option.value ~default:(Scow_term.zero ()) current_term
         ; prev_log_index = Scow_log_index.pred start_idx
         ; prev_log_term  = prev_term
         ; leader_commit  = State.commit_idx state
@@ -88,7 +90,8 @@ struct
       | Ok _ ->
         ()
       | Error `Invalid_log
-      | Error `Closed ->
+      | Error `Closed
+      | Error `Invalid_term_store ->
         ()
       | Error (`Not_found idx) -> begin
         failwith "nyi"
@@ -158,16 +161,20 @@ struct
 
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
-    if Scow_term.compare (State.current_term state) append_entries.Ae.term < 0 then begin
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
+    if Scow_term.compare current_term append_entries.Ae.term < 0 then begin
       let state =
         state
         |> State.set_leader (Some node)
-        |> State.set_current_term append_entries.Ae.term
         |> State.set_state_follower
         |> State.set_heartbeat_timeout self
       in
       State.notify state Scow_notify.Event.(State_change (Leader, Follower))
       >>= fun () ->
+      Store.store_term (State.store state) append_entries.Ae.term
+      >>=? fun () ->
       Store.store_vote (State.store state) None
       >>=? fun () ->
       State.handler
@@ -180,7 +187,7 @@ struct
       Transport.resp_append_entries
         (State.transport state)
         ctx
-        ~term:(State.current_term state)
+        ~term:current_term
         ~success:false
       >>= fun _ ->
       Deferred.return (Ok state)
@@ -188,12 +195,14 @@ struct
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then begin
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
+    if Scow_term.compare current_term request_vote.Rv.term < 0 then begin
       let state =
         state
         |> State.set_leader (Some node)
         |> State.set_state_follower
-        |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
         |> State.set_heartbeat_timeout self
@@ -201,6 +210,8 @@ struct
       State.notify state Scow_notify.Event.(State_change (Leader, Follower))
       >>= fun () ->
       Store.store_vote (State.store state) None
+      >>=? fun () ->
+      Store.store_term (State.store state) request_vote.Rv.term
       >>=? fun () ->
       State.handler
         state
@@ -212,16 +223,19 @@ struct
       Transport.resp_request_vote
         (State.transport state)
         ctx
-        ~term:(State.current_term state)
+        ~term:current_term
         ~granted:false
       >>= fun _ ->
       Deferred.return (Ok state)
     end
 
   let handle_append_entry self state ret entry =
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
     Log.append
       (State.log state)
-      [State.current_term state, entry]
+      [current_term, entry]
     >>= function
       | Ok log_index -> begin
         let ae =
@@ -295,9 +309,17 @@ struct
 
   let update_commit_idx state =
     let highest_match_idx = State.compute_highest_match_idx state in
+    Store.load_term (State.store state)
+    >>= fun current_term_res ->
+    let current_term =
+      current_term_res
+      |> Result.ok
+      |> Option.value ~default:None
+      |> Option.value ~default:(Scow_term.zero ())
+    in
     Log.get_term (State.log state) highest_match_idx
     >>= function
-      | Ok term when Scow_term.is_equal (State.current_term state) term -> begin
+      | Ok term when Scow_term.is_equal current_term term -> begin
         maybe_notify_commit_idx state highest_match_idx
         >>= fun () ->
         Deferred.return (State.set_commit_idx highest_match_idx state)
@@ -307,13 +329,12 @@ struct
       | Error _ ->
         failwith "nyi"
 
-  let do_handle_append_entries_resp self state node next_idx curr_next_idx = function
-    | Ok (term, _) when Scow_term.compare (State.current_term state) term < 0 -> begin
+  let do_handle_append_entries_resp self state node next_idx curr_next_idx current_term = function
+    | Ok (term, _) when Scow_term.compare current_term term < 0 -> begin
       (* This node is ahead of us *)
       let state =
         state
         |> State.set_leader (Some node)
-        |> State.set_current_term term
         |> State.set_state_follower
         |> State.cancel_election_timeout
         |> State.set_heartbeat_timeout self
@@ -322,6 +343,8 @@ struct
       State.notify state Scow_notify.Event.(State_change (Leader, Follower))
       >>= fun () ->
       Store.store_vote (State.store state) None
+      >>=? fun () ->
+      Store.store_term (State.store state) term
       >>=? fun () ->
       Deferred.return (Ok state)
     end
@@ -366,7 +389,10 @@ struct
     in
     get_curr_next_idx ()
     >>=? fun curr_next_idx ->
-    do_handle_append_entries_resp self state node next_idx curr_next_idx resp
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
+    do_handle_append_entries_resp self state node next_idx curr_next_idx current_term resp
 
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) -> begin

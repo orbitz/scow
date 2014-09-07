@@ -8,7 +8,7 @@ LIB_MODULES=scow_log_index.ml scow.ml scow_statem.ml \
 	scow_transport.ml scow_log.ml scow_rpc.ml \
 	scow_term.ml scow_store.ml scow_server_state.ml \
 	scow_server_msg.ml scow_server_candidate.ml \
-	scow_server_follower.ml scow_server_leader.ml \
+	scow_state_follower.ml scow_server_leader.ml \
 	scow_timer.ml scow_transport_memory.ml \
 	scow_store_memory.ml scow_log_memory.ml \
 	scow_transport_faulty.ml scow_transport_timeout.ml \

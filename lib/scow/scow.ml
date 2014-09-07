@@ -25,7 +25,7 @@ struct
   module Msg       = Scow_server_msg.Make(Statem)(Log)(Transport)
   module State     = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  module Follower  = Scow_server_follower.Make(Statem)(Log)(Store)(Transport)
+  module Follower  = Scow_state_follower.Make(Statem)(Log)(Store)(Transport)
   module Candidate = Scow_server_candidate.Make(Statem)(Log)(Store)(Transport)
   module Leader    = Scow_server_leader.Make(Statem)(Log)(Store)(Transport)
 
@@ -86,7 +86,15 @@ struct
         Deferred.return (Resp.Ok state)
       end
       | Msg.Get (Msg.Get_current_term ret) -> begin
-        Ivar.fill ret (State.current_term state);
+        Store.load_term (State.store state)
+        >>= fun current_term_res ->
+        let current_term =
+          current_term_res
+          |> Result.ok
+          |> Option.value ~default:None
+          |> Option.value ~default:(Scow_term.zero ())
+        in
+        Ivar.fill ret current_term;
         Deferred.return (Resp.Ok state)
       end
       | Msg.Get _ ->
