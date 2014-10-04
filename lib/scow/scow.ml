@@ -26,8 +26,8 @@ struct
   module State     = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
   module Follower  = Scow_state_follower.Make(Statem)(Log)(Store)(Transport)
-  module Candidate = Scow_server_candidate.Make(Statem)(Log)(Store)(Transport)
-  module Leader    = Scow_server_leader.Make(Statem)(Log)(Store)(Transport)
+  module Candidate = Scow_state_candidate.Make(Statem)(Log)(Store)(Transport)
+  module Leader    = Scow_state_leader.Make(Statem)(Log)(Store)(Transport)
 
   type t = Msg.t Gen_server.t
 

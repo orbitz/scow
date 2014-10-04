@@ -16,12 +16,19 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  let is_term_gte_current state append_entries =
-    Store.load_term (State.store state)
+  let load_term store =
+    Store.load_term store
     >>=? fun current_term_opt ->
+    current_term_opt
+    |> Option.value ~default:(Scow_term.zero ())
+    |> Result.return
+    |> Deferred.return
+
+  let is_term_gte_current state append_entries =
+    load_term (State.store state)
+    >>=? fun current_term ->
     let module Ae    = Scow_rpc.Append_entries in
     let ae_term      = append_entries.Ae.term in
-    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
     if Scow_term.compare current_term ae_term <= 0 then
       Deferred.return (Ok ())
     else
@@ -162,12 +169,12 @@ struct
       | Ok state ->
         Deferred.return (Ok state)
       | Error _ -> begin
-        Store.load_term (State.store state)
-        >>=? fun current_term_opt ->
+        load_term (State.store state)
+        >>=? fun current_term ->
         Transport.resp_append_entries
           (State.transport state)
           ctx
-          ~term:(Option.value ~default:(Scow_term.zero ()) current_term_opt)
+          ~term:current_term
           ~success:false
         >>=? fun () ->
         Deferred.return (Ok state)
@@ -230,9 +237,8 @@ struct
     >>=? fun last_log_term ->
     Store.load_vote (State.store state)
     >>=? fun voted_for_opt ->
-    Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term   = Option.value ~default:(Scow_term.zero ()) current_term_opt in
+    load_term (State.store state)
+    >>=? fun current_term ->
     let module Rv      = Scow_rpc.Request_vote in
     let i_am_in_future =
       Scow_term.compare current_term request_vote.Rv.term > 0 ||
@@ -259,9 +265,8 @@ struct
    * then do all the necessary updates to our state.
    *)
   let update_term self state node request_vote =
-    Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term   = Option.value ~default:(Scow_term.zero ()) current_term_opt in
+    load_term (State.store state)
+    >>=? fun current_term ->
     let module Rv      = Scow_rpc.Request_vote in
     let vote_term      = request_vote.Rv.term in
     let vote_in_future = Scow_term.compare current_term vote_term < 0 in
@@ -324,10 +329,9 @@ struct
    * candidate send RequestVote's to everyone else.
    *)
   let handle_election_timeout self state =
-    Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
-    let term         = Scow_term.succ current_term in
+    load_term (State.store state)
+    >>=? fun current_term ->
+    let term = Scow_term.succ current_term in
     request_votes self state term
     >>=? fun () ->
     Store.store_vote (State.store state) (Some (State.me state))

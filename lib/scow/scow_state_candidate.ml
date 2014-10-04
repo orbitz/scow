@@ -14,35 +14,42 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
+  let load_term store =
+    Store.load_term store
+    >>=? fun current_term_opt ->
+    current_term_opt
+    |> Option.value ~default:(Scow_term.zero ())
+    |> Result.return
+    |> Deferred.return
+
+  let switch_to_follower_handle_append_entries self state (node, append_entries, ctx) =
+    let state = State.set_state_follower state in
+    State.handler
+      state
+      self
+      state
+      (Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx))
+
+  let send_unsuccessful_append_entries state ctx current_term =
+    Transport.resp_append_entries
+      (State.transport state)
+      ctx
+      ~term:current_term
+      ~success:false
+    >>= fun _ ->
+    Deferred.return (Ok state)
+
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
-    Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
-    if Scow_term.compare current_term append_entries.Ae.term <= 0 then begin
-      let state = State.set_state_follower state in
-      State.handler
-        state
-        self
-        state
-        (Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx))
-    end
-    else begin
-      Transport.resp_append_entries
-        (State.transport state)
-        ctx
-        ~term:current_term
-        ~success:false
-      >>= fun _ ->
-      Deferred.return (Ok state)
-    end
+    load_term (State.store state)
+    >>=? fun current_term ->
+    if Scow_term.compare current_term append_entries.Ae.term <= 0 then
+      switch_to_follower_handle_append_entries self state (node, append_entries, ctx)
+    else
+      send_unsuccessful_append_entries state ctx current_term
 
-  let handle_rpc_request_vote self state (node, request_vote, ctx) =
+  let switch_to_follower_handle_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = Option.value ~default:(Scow_term.zero ()) current_term_opt in
-    if Scow_term.compare current_term request_vote.Rv.term < 0 then begin
       let state =
         state
         |> State.set_state_follower
@@ -59,20 +66,32 @@ struct
         self
         state
         (Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx))
-    end
-    else begin
-      Transport.resp_request_vote
-        (State.transport state)
-        ctx
-        ~term:current_term
-        ~granted:false
-      >>= fun _ ->
-      Deferred.return (Ok state)
-    end
+
+  let send_ungranted_request_vote state ctx current_term =
+    Transport.resp_request_vote
+      (State.transport state)
+      ctx
+      ~term:current_term
+      ~granted:false
+    >>= fun _ ->
+    Deferred.return (Ok state)
+
+  let handle_rpc_request_vote self state (node, request_vote, ctx) =
+    let module Rv = Scow_rpc.Request_vote in
+    load_term (State.store state)
+    >>=? fun current_term ->
+    if Scow_term.compare current_term request_vote.Rv.term < 0 then
+      switch_to_follower_handle_request_vote self state (node, request_vote, ctx)
+    else
+      send_ungranted_request_vote state ctx current_term
 
   let handle_append_entries _self state ret =
     Ivar.fill ret (Error `Not_master);
     Deferred.return (Ok state)
+
+  let have_majority_votes votes nodes =
+    (* The +1 is because 'me' is not in [State.nodes] but it is in vote count *)
+    votes > ((List.length nodes + 1) / 2)
 
   let transition_to_leader self state =
     (*
@@ -95,15 +114,12 @@ struct
 
   let handle_received_yes_vote self state node =
     let state = State.record_vote node state in
-    (* The +1 is because 'me' is not in [State.nodes] but it is in vote count *)
-    if State.count_votes state > ((List.length (State.nodes state) + 1) / 2) then begin
+    if have_majority_votes (State.count_votes state) (State.nodes state) then
       transition_to_leader self state
-    end
     else
       Deferred.return (Ok state)
 
   let handle_received_no_vote _self state term =
-    (* Unclear what to do in this case *)
     Deferred.return (Ok state)
 
   let handle_heartbeat_timeout self state =
@@ -132,6 +148,4 @@ struct
       handle_heartbeat_timeout self state
     | Msg.Append_entries_resp _ ->
       Deferred.return (Ok state)
-
 end
-
