@@ -9,7 +9,7 @@ TRANSPORTS=scow_transport_faulty.ml scow_transport_timeout.ml \
 
 LIB_MODULES=scow_log_index.ml scow.ml scow_statem.ml \
 	scow_transport.ml scow_log.ml scow_rpc.ml \
-	scow_term.ml scow_store.ml scow_event_table.ml \
+	scow_term.ml scow_store.ml scow_rule_table.ml \
 	scow_timer.ml scow_transport_memory.ml \
 	scow_store_memory.ml scow_log_memory.ml \
 	scow_notify.ml scow_replication_state.ml \

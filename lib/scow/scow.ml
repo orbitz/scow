@@ -22,10 +22,10 @@ struct
              }
   end
 
-  module RState      = Scow_replication_state.Make(Statem)(Log)(Store)(Transport)
-  module Msg         = Scow_msg.Make(Statem)(Log)(Transport)
-  module Op          = Scow_replication_msg.Make(Statem)(Log)(Transport)
-  module Event_table = Scow_event_table.Make(Statem)(Log)(Store)(Transport)
+  module RState     = Scow_replication_state.Make(Statem)(Log)(Store)(Transport)
+  module Msg        = Scow_msg.Make(Statem)(Log)(Transport)
+  module Op         = Scow_replication_msg.Make(Statem)(Log)(Transport)
+  module Rule_table = Scow_rule_table.Make(Statem)(Log)(Store)(Transport)
 
   type t = Msg.t Gen_server.t
 
@@ -67,7 +67,7 @@ struct
       in
       RState.create init_args
       >>=? fun rstate ->
-      let event_engine = Event_engine.create (Event_table.table ()) in
+      let event_engine = Event_engine.create (Rule_table.table ()) in
       Deferred.return (Ok { event_engine; rstate })
 
     let handle_call self state = function
