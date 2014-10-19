@@ -15,6 +15,10 @@ LIB_MODULES=scow_log_index.ml scow.ml scow_statem.ml \
 	scow_transport_party.ml scow_notify.ml
 NON_LIB_MODULES=
 
+EXTERNAL_DEPS= \
+	../event_engine/event_engine.cmxa \
+	../event_engine/event_engine.cma
+
 BYTE_TARGETS=scow.cma
 NATIVE_TARGETS=scow.cmxa
 

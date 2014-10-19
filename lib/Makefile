@@ -1,4 +1,4 @@
-SUBDIRS = scow
+SUBDIRS = scow event_engine
 
 all_apps = $(SUBDIRS)
 
@@ -18,6 +18,7 @@ test: $(subdirs_test)
 
 clean: $(subdirs_clean)
 
+scow: event_engine
 
 $(SUBDIRS):
 	$(MAKE) -C $@ .d
