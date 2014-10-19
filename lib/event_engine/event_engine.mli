@@ -16,5 +16,9 @@ module Action : sig
   type ('e, 's) t = ('e, 's) Event.t -> 's Deferred.t
 end
 
-val create : (('e, 's) Rule.t * ('e, 's) Action.t) list -> ('e, 's) t
+module Rule_table : sig
+  type ('e, 's) t = (('e, 's) Rule.t * ('e, 's) Action.t) list
+end
+
+val create : ('e, 's) Rule_table.t -> ('e, 's) t
 val run    : ('e, 's) t -> ('e, 's) Event.t -> 's Deferred.t

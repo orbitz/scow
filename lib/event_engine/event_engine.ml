@@ -15,9 +15,13 @@ module Action = struct
   type ('e, 's) t = ('e, 's) Event.t -> 's Deferred.t
 end
 
-type ('e, 's) t = (('e, 's) Rule.t * ('e, 's) Action.t) list
+module Rule_table = struct
+  type ('e, 's) t = (('e, 's) Rule.t * ('e, 's) Action.t) list
+end
 
-let create ruleset = ruleset
+type ('e, 's) t = ('e, 's) Rule_table.t
+
+let create rule_table = rule_table
 
 let run t event =
   Deferred.List.fold

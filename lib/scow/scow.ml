@@ -22,27 +22,29 @@ struct
              }
   end
 
-  module Msg       = Scow_server_msg.Make(Statem)(Log)(Transport)
-  module State     = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
-
-  module Follower  = Scow_server_follower.Make(Statem)(Log)(Store)(Transport)
-  module Candidate = Scow_server_candidate.Make(Statem)(Log)(Store)(Transport)
-  module Leader    = Scow_server_leader.Make(Statem)(Log)(Store)(Transport)
+  module RState      = Scow_replication_state.Make(Statem)(Log)(Store)(Transport)
+  module Msg         = Scow_msg.Make(Statem)(Log)(Transport)
+  module Op          = Scow_replication_msg.Make(Statem)(Log)(Transport)
+  module Event_table = Scow_event_table.Make(Statem)(Log)(Store)(Transport)
 
   type t = Msg.t Gen_server.t
 
   module Server = struct
     module Resp = Gen_server.Response
 
+    type state = { event_engine : (Op.t, RState.t) Event_engine.t
+                 ; rstate       : RState.t
+                 }
+
     let rec transport_listener_loop server transport =
       Transport.listen transport
       >>=? fun msg_with_ctx -> begin
-        Gen_server.send server (Msg.Op (Msg.Rpc msg_with_ctx))
-        >>= function
-          | Ok _ ->
-            transport_listener_loop server transport
-          | Error _ ->
-            Deferred.return (Error `Transport_error)
+      Gen_server.send server (Msg.Op (Op.Rpc msg_with_ctx))
+      >>= function
+        | Ok _ ->
+          transport_listener_loop server transport
+        | Error _ ->
+          Deferred.return (Error `Transport_error)
       end
 
     let start_transport_listener server transport =
@@ -50,43 +52,41 @@ struct
 
     let init self init_args =
       start_transport_listener self init_args.Init_args.transport;
-      ignore (Gen_server.send self (Msg.Op Msg.Heartbeat));
+      ignore (Gen_server.send self (Msg.Op Op.Heartbeat));
       let init_args =
-        State.Init_args.({ me           = init_args.Init_args.me
-                         ; nodes        = init_args.Init_args.nodes
-                         ; statem       = init_args.Init_args.statem
-                         ; transport    = init_args.Init_args.transport
-                         ; log          = init_args.Init_args.log
-                         ; store        = init_args.Init_args.store
-                         ; timeout      = init_args.Init_args.timeout
-                         ; timeout_rand = init_args.Init_args.timeout_rand
-                         ; notify       = init_args.Init_args.notify
-                         ; follower     = Follower.handle_call
-                         ; candidate    = Candidate.handle_call
-                         ; leader       = Leader.handle_call
-                         })
+        RState.Init_args.({ me           = init_args.Init_args.me
+                          ; nodes        = init_args.Init_args.nodes
+                          ; statem       = init_args.Init_args.statem
+                          ; transport    = init_args.Init_args.transport
+                          ; log          = init_args.Init_args.log
+                          ; store        = init_args.Init_args.store
+                          ; timeout      = init_args.Init_args.timeout
+                          ; timeout_rand = init_args.Init_args.timeout_rand
+                          ; notify       = init_args.Init_args.notify
+                          })
       in
-      State.create init_args
+      RState.create init_args
+      >>=? fun rstate ->
+      let event_engine = Event_engine.create (Event_table.table ()) in
+      Deferred.return (Ok { event_engine; rstate })
 
     let handle_call self state = function
       | Msg.Op op -> begin
-        State.handler state self state op
-        >>= function
-          | Ok state ->
-            Deferred.return (Resp.Ok state)
-          | Error err ->
-            Deferred.return (Resp.Error (err, state))
+        let event = Event_engine.Event.({ event = op; state = state.rstate }) in
+        Event_engine.run state.event_engine event
+        >>= fun rstate ->
+        Deferred.return (Resp.Ok { state with rstate })
       end
       | Msg.Get (Msg.Get_leader ret) -> begin
-        Ivar.fill ret (State.leader state);
+        Ivar.fill ret (RState.leader state.rstate);
         Deferred.return (Resp.Ok state)
       end
       | Msg.Get (Msg.Get_me ret) -> begin
-        Ivar.fill ret (State.me state);
+        Ivar.fill ret (RState.me state.rstate);
         Deferred.return (Resp.Ok state)
       end
       | Msg.Get (Msg.Get_current_term ret) -> begin
-        Ivar.fill ret (State.current_term state);
+        Ivar.fill ret (RState.current_term state.rstate);
         Deferred.return (Resp.Ok state)
       end
       | Msg.Get _ ->
@@ -110,7 +110,7 @@ struct
         | Error err -> begin
           printf "Error: %s - %s\n"
             (string_of_error err)
-            (Transport.Node.to_string (State.me state));
+            (Transport.Node.to_string (RState.me state.rstate));
           Deferred.unit
         end
 
@@ -141,7 +141,7 @@ struct
 
   let append_log t entry =
     let ret = Ivar.create () in
-    Gen_server.send t (Msg.Op (Msg.Append_entry (ret, entry)))
+    Gen_server.send t (Msg.Op (Op.Append_entry (ret, entry)))
     >>=? fun _ ->
     Ivar.read ret
     >>= function
