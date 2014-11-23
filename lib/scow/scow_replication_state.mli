@@ -48,7 +48,8 @@ sig
   val leader     : t -> Transport.Node.t option
   val set_leader : Transport.Node.t option -> t -> t
 
-  val current_term : t -> Scow_term.t
+  val current_term     : t -> Scow_term.t
+  val set_current_term : Scow_term.t -> t -> t
 
   val role     : t -> Role.t
   val set_role : Role.t -> t -> t

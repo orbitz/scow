@@ -14,6 +14,7 @@ LIB_MODULES=scow_log_index.ml scow.ml scow_statem.ml \
 	scow_store_memory.ml scow_log_memory.ml \
 	scow_notify.ml scow_replication_state.ml \
 	scow_msg.ml scow_replication_msg.ml \
+	scow_follower_rule_table.ml \
 	$(TRANSPORTS)
 
 NON_LIB_MODULES=

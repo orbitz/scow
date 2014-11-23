@@ -13,6 +13,8 @@ struct
   module Msg    = Scow_replication_msg.Make(Statem)(Log)(Transport)
   module Rpc    = Scow_transport.Msg
 
+  module Follower = Scow_follower_rule_table.Make(Statem)(Log)(Store)(Transport)
+
   type state = RState.t
   type msg   = Msg.t
 
@@ -26,7 +28,7 @@ struct
 
   let follower_rule_table =
     Event_engine.create
-      []
+      (Follower.table ())
 
   let get_term_from_append_entries append_entries =
     append_entries.Scow_rpc.Append_entries.term
@@ -58,10 +60,24 @@ struct
       ~f:(fun term -> Scow_term.compare current_term term >= 0)
       term_opt
 
-  let become_follower event =
-    let rstate = event.Event.state in
-    let rstate = RState.set_role RState.Role.Follower rstate in
-    Deferred.return rstate
+  let become_follower_with_term event =
+    let term_opt = get_term_from_event event.Event.event in
+    let current_term =
+      Option.value
+        ~default:(RState.current_term event.Event.state)
+        term_opt
+    in
+    let rstate =
+      event.Event.state
+      |> RState.set_role RState.Role.Follower
+      |> RState.set_current_term current_term
+    in
+    Store.store_vote (RState.store event.Event.state) None
+    >>= function
+      | Ok () ->
+        Deferred.return rstate
+      | Error _ ->
+        failwith "nyi - become_follower_with_term"
 
   let is_leader event =
     let rstate = event.Event.state in
@@ -76,7 +92,7 @@ struct
     RState.Role.Follower = RState.role rstate
 
   let table () =
-    [ (rpc_in_future, become_follower)
+    [ (rpc_in_future, become_follower_with_term)
     ; (is_leader,     Event_engine.run leader_rule_table)
     ; (is_candidate,  Event_engine.run candidate_rule_table)
     ; (is_follower,   Event_engine.run follower_rule_table)

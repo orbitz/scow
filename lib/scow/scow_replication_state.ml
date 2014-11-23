@@ -108,6 +108,7 @@ struct
   let set_leader leader t = { t with leader }
 
   let current_term t = t.current_term
+  let set_current_term current_term t = { t with current_term }
 
   let role t = t.role
   let set_role role t = { t with role }
