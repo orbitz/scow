@@ -1,5 +1,11 @@
 open Async.Std
 
+module O : sig
+  val (&&) : ('a -> bool) -> ('a -> bool) -> 'a -> bool
+  val (||) : ('a -> bool) -> ('a -> bool) -> 'a -> bool
+  val not  : ('a -> bool) -> 'a -> bool
+end
+
 type ('e, 's) t
 
 module Event : sig

@@ -16,18 +16,7 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  let request_votes self vote_request transport nodes =
-    let send_request_vote node =
-      Transport.request_vote
-        transport
-        node
-        vote_request
-      >>=? fun (term, success) ->
-      Gen_server.send self (Msg.Op (Msg.Received_vote (node, term, success)))
-    in
-    List.iter
-      ~f:(fun node -> ignore (send_request_vote node))
-      nodes
+  module Event = Event_engine.Event
 
   let is_valid_term state append_entries =
     let module Ae    = Scow_rpc.Append_entries in
@@ -253,7 +242,59 @@ struct
     Ivar.fill ret (Error `Not_master);
     Deferred.return (Ok state)
 
-  let handle_election_timeout self state =
+  (* let handle_call self state = function *)
+  (*   | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) -> *)
+  (*     handle_rpc_append_entries self state node (node, append_entries, ctx) *)
+  (*   | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) -> *)
+  (*     handle_rpc_request_vote self state (node, request_vote, ctx) *)
+  (*   | Msg.Append_entry (ret, _) -> *)
+  (*     handle_append_entries self state ret *)
+  (*   | Msg.Election_timeout -> *)
+  (*     handle_election_timeout self state *)
+  (*   | Msg.Heartbeat -> *)
+  (*     handle_heartbeat self state *)
+  (*   | Msg.Received_vote _ -> *)
+  (*     Deferred.return (Ok state) *)
+  (*   | Msg.Append_entries_resp _ -> *)
+  (*     Deferred.return (Ok state) *)
+
+  let set_election_timeout self event =
+    event.Event.state
+    |> State.set_election_timeout self
+    |> Deferred.return
+
+  let set_leader event =
+    match event.Event.event with
+      | Msg.Rpc (TMsg.Append_entries (node, _), _)
+      | Msg.Rpc (TMsg.Request_vote (node, _), _) ->
+        Deferred.return (State.set_leader (Some node) event.Event.state)
+      | _ ->
+        Deferred.return (event.Event.state)
+
+  let reset_timeout event =
+    event.Event.state
+      |> State.cancel_heartbeat_timeout
+      |> State.set_heartbeat_timeout self
+      |> Deferred.return
+
+  (*
+   * Transitioning to a candidate
+   *)
+  let request_votes self vote_request transport nodes =
+    let send_request_vote node =
+      Transport.request_vote
+        transport
+        node
+        vote_request
+      >>=? fun (term, success) ->
+      Gen_server.send self (Msg.Op (Msg.Received_vote (node, term, success)))
+    in
+    List.iter
+      ~f:(fun node -> ignore (send_request_vote node))
+      nodes
+
+  let become_candidate self event =
+    let state = event.Event.state in
     let term = Scow_term.succ (State.current_term state) in
     Log.get_log_index_range (State.log state)
     >>=? fun (_low, high) ->
@@ -279,26 +320,65 @@ struct
     |> Result.return
     |> Deferred.return
 
-  let handle_heartbeat self state =
-    state
-    |> State.set_election_timeout self
-    |> Result.return
-    |> Deferred.return
+  (*
+   * Received an append entries
+   *)
+  let reply_append_entries = failwith "nyi"
 
-  let handle_call self state = function
-    | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) ->
-      handle_rpc_append_entries self state node (node, append_entries, ctx)
-    | Msg.Rpc (TMsg.Request_vote (node, request_vote), ctx) ->
-      handle_rpc_request_vote self state (node, request_vote, ctx)
-    | Msg.Append_entry (ret, _) ->
-      handle_append_entries self state ret
-    | Msg.Election_timeout ->
-      handle_election_timeout self state
-    | Msg.Heartbeat ->
-      handle_heartbeat self state
-    | Msg.Received_vote _ ->
-      Deferred.return (Ok state)
-    | Msg.Append_entries_resp _ ->
-      Deferred.return (Ok state)
+  let rpc_request_vote = failwith "nyi"
+
+  let rpc_append_entries = failwith "nyi"
+
+  (*
+   * Tests
+   *)
+  let is_rpc_with_term_in_future event =
+    let module RAppend_entries = Scow_rpc.Append_entries in
+    let module RRequest_vote = Scow_rpc.Request_vote in
+    let state = event.Event.state in
+    let current_term = State.current_term state in
+    match event.Event.event with
+      | Msg.Rpc (TMsg.Append_entries (_, { RAppend_entries.term }), _)
+      | Msg.Rpc (TMsg.Request_vote (_, { RRequest_vote.term }), _) ->
+	Scow_term.compare current_term term > 0
+      | _ ->
+	false
+
+  let is_heartbeat event =
+    event.Event.event = Msg.Heartbeat
+
+  let is_election_timeout event =
+    event.Event.event = Msg.Election_timeout
+
+  let is_append_entries event =
+    match event.Event.event with
+      | Msg.Append_entry _ -> true
+      | _                  -> false
+
+  let is_rpc_request_vote event =
+    match event.Event.event with
+      | Msg.Rpc (TMsg.Request_vote _, _) -> true
+      | _                                -> false
+
+  let is_rpc_append_entries event =
+    match event.Event.event with
+      | Msg.Rpc (TMsg.Append_entries _, _) -> true
+      | _                                  -> false
+
+  let table self =
+    [ (is_heartbeat,               set_election_timeout self)
+    ; (can_set_leader,             set_leader)
+    ; (is_rpc_with_term_in_future, reset_timeout self)
+    ; (is_election_timeout,        become_candidate self)
+    ; (is_append_entries,          reply_append_entries)
+    ; (is_rpc_request_vote,        rpc_request_vote self)
+    ; (is_rpc_append_entries,      rpc_append_entries self)
+    ]
+
+  let handle_call self state msg =
+    let event_engine = Event_engine.create (table self) in
+    let event = Event_engine.Event.({ event = msg; state = state }) in
+    Event_engine.run event_engine event >>= fun s ->
+    Deferred.return (Ok s)
 end
 

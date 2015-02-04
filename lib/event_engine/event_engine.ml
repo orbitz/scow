@@ -1,6 +1,12 @@
 open Async.Std
 open Core.Std
 
+module O = struct
+  let (&&) l r e = l e && r e
+  let (||) l r e = l e || r e
+  let not c e    = not (c e)
+end
+
 module Event = struct
   type ('e, 's) t = { event : 'e
                     ; state : 's

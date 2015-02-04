@@ -1,0 +1,6 @@
+name="event_engine"
+version="1.0.0"
+description="Event engine"
+requires="core,async"
+archive(byte)="event_engine.cma"
+archive(native)="event_engine.cmxa"
