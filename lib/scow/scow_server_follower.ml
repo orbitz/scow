@@ -16,6 +16,11 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
+  (*
+   *************************************************************
+   * Requesting votes
+   *************************************************************
+   *)
   let request_votes self vote_request transport nodes =
     let send_request_vote node =
       Transport.request_vote
@@ -28,6 +33,34 @@ struct
     List.iter
       ~f:(fun node -> ignore (send_request_vote node))
       nodes
+
+  let send_vote_requests self term state =
+    Log.get_log_index_range (State.log state)
+    >>=? fun (_low, high) ->
+    Log.get_term (State.log state) high
+    >>=? fun last_term ->
+    let vote_request =
+      Scow_rpc.({ Request_vote.term           = term
+                ;              last_log_index = high
+                ;              last_log_term  = last_term
+                })
+    in
+    request_votes
+      self
+      vote_request
+      (State.transport state)
+      (State.nodes state);
+    Deferred.return (Ok ())
+
+  let vote_for_self state =
+    Store.store_vote
+      (State.store state)
+      (Some (State.me state))
+
+  let save_term term state =
+    Store.store_term
+      (State.store state)
+      term
 
   let is_valid_term state append_entries =
     let module Ae    = Scow_rpc.Append_entries in
@@ -255,20 +288,11 @@ struct
 
   let handle_election_timeout self state =
     let term = Scow_term.succ (State.current_term state) in
-    Log.get_log_index_range (State.log state)
-    >>=? fun (_low, high) ->
-    Log.get_term (State.log state) high
-    >>=? fun last_term ->
-    let vote_request =
-      Scow_rpc.({ Request_vote.term           = term
-                ;              last_log_index = high
-                ;              last_log_term  = last_term
-                })
-    in
-    request_votes self vote_request (State.transport state) (State.nodes state);
-    Store.store_vote (State.store state) (Some (State.me state))
+    send_vote_requests self term state
     >>=? fun () ->
-    Store.store_term (State.store state) term
+    vote_for_self state
+    >>=? fun () ->
+    save_term term state
     >>=? fun () ->
     State.notify state Scow_notify.Event.(State_change (Follower, Candidate))
     >>= fun () ->
