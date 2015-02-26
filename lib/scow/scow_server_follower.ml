@@ -62,14 +62,83 @@ struct
       (State.store state)
       term
 
-  let is_valid_term state append_entries =
-    let module Ae    = Scow_rpc.Append_entries in
-    let current_term = State.current_term state in
-    let ae_term      = append_entries.Ae.term in
-    if Scow_term.compare current_term ae_term <= 0 then
+  (*
+   *************************************************************
+   * Responding to a vote request
+   *************************************************************
+   *)
+  let vote_term_is_valid vote_term state =
+    let vote_term_in_past =
+      Scow_term.compare vote_term (State.current_term state) < 0
+    in
+    if vote_term_in_past then
+      Deferred.return (Error `Term_less_than_current)
+    else
+      Deferred.return (Ok state)
+
+  let maybe_update_term vote_term state =
+    if Scow_term.is_equal vote_term (State.current_term state) then
+      Deferred.return (Ok state)
+    else begin
+      Store.store_vote (State.store state) None
+      >>=? fun () ->
+      save_term vote_term state
+      >>=? fun state ->
+      state
+      |> State.set_leader None
+      |> State.set_current_term vote_term
+      |> Result.return
+      |> Deferred.return
+    end
+
+  let update_leader node state =
+    let state = State.set_leader (Some node) in
+    Deferred.return (Ok state)
+
+  let reset_heartbeat self state =
+    state
+    |> State.cancel_election_timeout
+    |> State.cancel_heartbeat_timeout
+    |> State.set_heartbeat_timeout self
+    |> Result.return
+    |> Deferred.return
+
+  let get_latest_commit_idx state =
+    Log.get_log_index_range (State.log state)
+
+  let candidate_commit_idx_up_to_date latest_commit_idx request_vote state =
+    let module Rv = Scow_rpc.Request_vote in
+    Log.get_term (State.log state) latest_commit_idx
+    >>=? fun last_log_term ->
+    let i_am_in_future =
+      Scow_term.compare (State.current_term state) request_vote.Rv.term > 0 ||
+	Scow_term.compare last_log_term request_vote.Rv.last_log_term > 0 ||
+	Scow_log_index.compare last_log_index request_vote.Rv.last_log_index > 0
+    in
+    if i_am_in_future then
       Deferred.return (Ok ())
     else
-      Deferred.return (Error `Term_less_than_current)
+      Deferred.return (Error `Candidate_commit_not_up_to_date)
+
+  let can_give_vote node state =
+    Store.load_vote (Store.store state)
+    >>=? function
+      | None
+      | Some voted_for when Transport.Node.compare voted_for node = 0 ->
+	Deferred.return (Ok ())
+      | Some voted_for ->
+	Deferred.return (Error (`Already_voted_for voted_for))
+
+  let give_vote ctx node state =
+    Store.save_vote (Store.store state) (Some node)
+    >>=? fun () ->
+    Store.load_term (Store.store state)
+    >>=? fun current_term ->
+    Transport.resp_request_vote
+      (State.transport state)
+      ctx
+      ~term:current_term
+      true
 
   let previous_index_matches_term state append_entries =
     let module Ae      = Scow_rpc.Append_entries in
@@ -111,7 +180,7 @@ struct
     let log_index = Scow_log_index.succ (append_entries.Ae.prev_log_index) in
     check_entries_match (State.log state) log_index append_entries.Ae.entries
 
-  let can_apply_log state append_entries =
+  let can_apply_log append_entries state =
     (*
      * If this function returns successfully it means that the log is in
      * a valid state for calling [append]
@@ -125,162 +194,86 @@ struct
   let do_append_entries state ctx entries =
     Log.append (State.log state) entries
     >>=? fun log_index ->
-    State.notify state (Scow_notify.Event.Append_entry (log_index, List.length entries))
-    >>= fun () ->
+    State.notify
+      state
+      (Scow_notify.Event.Append_entry (log_index, List.length entries))
+    >>=? fun () ->
+    Deferred.return (Ok state)
+
+  let apply_state_machine leader_commit state =
+    (* Log index less than *)
+    let lile l1 l2 = Scow_log_index.compare l1 l2 < 0 in
+    let rec apply_state_machine' state = function
+      | leader_commit when lile (State.last_applied state) leader_commit -> begin
+	let to_apply = Scow_log_index.succ (State.last_applied state) in
+	Log.get_entry (State.log state) to_apply
+	>>= function
+          | Ok (_term, elt) -> begin
+	    Statem.apply (State.statem state) elt
+	    >>= fun _ ->
+	    let state = State.set_last_applied to_apply state in
+	    apply_state_machine state leader_commit
+          end
+          | Error (`Not_found _) ->
+	    Deferred.return (Ok state)
+          | Error err ->
+	    Deferred.return (Error err)
+      end
+      | _ ->
+	Deferred.return (Ok state)
+    in
+    apply_state_machine' state leader_commit
+
+  let reply_append_entries_success ctx state =
     Transport.resp_append_entries
       (State.transport state)
       ctx
       ~term:(State.current_term state)
       ~success:true
+
+  let do_handle_rpc_append_entries self state (node, append_entries, ctx) =
+    let module Ae = Scow_rpc.Append_entries in
+    let term = append_entries.Ae.term in
+    append_entries_term_is_valid term state
+    >>=? maybe_update_term append_entries_term
+    >>=? update_leader node
+    >>=? reset_heartbeat self
+    >>=? can_apply_log append_entries
+    >>=? fun entries ->
+    do_append_entries ctx entries state
+    >>=? apply_state_machine append_entries.Ae.leader_commit
+    >>=? fun state ->
+    reply_append_entries_success ctx
     >>=? fun () ->
     Deferred.return (Ok state)
 
-  let rec apply_state_machine state = function
-    | leader_commit
-        when Scow_log_index.compare (State.last_applied state) leader_commit < 0 -> begin
-      let to_apply = Scow_log_index.succ (State.last_applied state) in
-      Log.get_entry (State.log state) to_apply
-      >>= function
-        | Ok (_term, elt) -> begin
-          Statem.apply (State.statem state) elt
-          >>= fun _ ->
-          let state = State.set_last_applied to_apply state in
-          apply_state_machine state leader_commit
-        end
-        | Error (`Not_found _) ->
-          Deferred.return (Ok state)
-        | Error err ->
-          Deferred.return (Error err)
-    end
-    | _ ->
-      Deferred.return (Ok state)
-
-  let apply_rpc_append_entries self state (node, append_entries, ctx) =
-    let module Ae = Scow_rpc.Append_entries in
-    let test_and_do () =
-      can_apply_log state append_entries
-      >>=? fun entries ->
-      do_append_entries state ctx entries
-      >>=? fun state ->
-      apply_state_machine state append_entries.Ae.leader_commit
-      >>=? fun state ->
-      let term = append_entries.Ae.term in
-      let state = State.set_current_term term state in
-      Deferred.return (Ok (State.set_current_term term state))
-    in
-    test_and_do ()
+  let handle_rpc_append_entries self state append_entries_data =
+    do_handle_rpc_append_entries self state append_entries_data
     >>= function
       | Ok state ->
-        Deferred.return (Ok state)
-      | Error _ -> begin
-        (* let string_of_error = function *)
-        (*   | `Not_found idx -> sprintf "Not_found %d" (Scow_log_index.to_int idx) *)
-        (*   | `Append_failed -> "Append_failed" *)
-        (*   | `Transport_error -> "Transport_error" *)
-        (*   | `Invalid_log -> "Invalid_log" *)
-        (*   | `Term_less_than_current -> "Term_less_than_current" *)
-        (*   | `Prev_term_does_not_match -> "Prev_term_does_not_match" *)
-        (* in *)
-        (* printf "Follower: %s Failed %s\n%!" *)
-        (*   (Transport.Node.to_string (State.me state)) *)
-        (*   (string_of_error err); *)
-        Transport.resp_append_entries
-          (State.transport state)
-          ctx
-          ~term:(State.current_term state)
-          ~success:false
-        >>=? fun () ->
-        Deferred.return (Ok state)
-      end
-
-  let handle_rpc_append_entries self state node append_entries_data =
-    let state =
-      state
-      |> State.set_leader (Some node)
-      |> State.cancel_election_timeout
-      |> State.cancel_heartbeat_timeout
-      |> State.set_heartbeat_timeout self
-    in
-    apply_rpc_append_entries self state append_entries_data
-    >>= function
-      | Ok state ->
-        Deferred.return (Ok state)
-      | Error _ ->
-        Deferred.return (Ok state)
+	Deferred.return (Ok state)
 
   let do_handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    Log.get_log_index_range (State.log state)
-    >>=? fun (_low, last_log_index) ->
-    Log.get_term (State.log state) last_log_index
-    >>=? fun last_log_term ->
-    let i_am_in_future =
-      Scow_term.compare (State.current_term state) request_vote.Rv.term > 0 ||
-        Scow_term.compare last_log_term request_vote.Rv.last_log_term > 0 ||
-        Scow_log_index.compare last_log_index request_vote.Rv.last_log_index > 0
-    in
-    let reply granted =
-      Transport.resp_request_vote
-        (State.transport state)
-        ctx
-        ~term:(State.current_term state)
-        ~granted
-    in
-    match State.voted_for state with
-      | Some _ | None when i_am_in_future -> begin
-        reply false
-        >>= fun _ ->
-        Deferred.return (Ok state)
-      end
-      | Some voted_node when Transport.Node.compare node voted_node = 0 -> begin
-        reply true
-        >>= fun _ ->
-        Deferred.return (Ok state)
-      end
-      | Some voted_for -> begin
-        reply false
-        >>= fun _ ->
-        Deferred.return (Ok state)
-      end
-      | None -> begin
-        let state =
-          state
-          |> State.set_voted_for (Some node)
-          |> State.set_current_term request_vote.Rv.term
-        in
-        Store.store_vote (State.store state) (Some node)
-        >>=? fun () ->
-        reply true
-        >>= fun _ ->
-        Deferred.return (Ok state)
-      end
+    let vote_term = request_vote.Rv.term in
+    vote_term_is_valid vote_term state
+    >>=? maybe_update_term vote_term
+    >>=? reset_heartbeat self
+    >>=? get_latest_commit_idx
+    >>=? fun latest_commit_idx ->
+    candidate_commit_idx_up_to_date latest_commit_idx request_vote state
+    >>=? fun () ->
+    can_give_vote node state
+    >>=? fun () ->
+    give_vote ctx node state
+    >>=? fun state ->
+    Deferred.return (Ok state)
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
-    let module Rv = Scow_rpc.Request_vote in
-    let update_term () =
-      let vote_term_in_future =
-        Scow_term.compare (State.current_term state) request_vote.Rv.term < 0
-      in
-      if vote_term_in_future then begin
-        let state =
-          state
-          |> State.set_leader (Some node)
-          |> State.set_voted_for None
-          |> State.set_current_term request_vote.Rv.term
-          |> State.cancel_election_timeout
-          |> State.cancel_heartbeat_timeout
-          |> State.set_heartbeat_timeout self
-        in
-        Store.store_vote (State.store state) None
-        >>=? fun () ->
-        Deferred.return (Ok state)
-      end
-      else
-        Deferred.return (Ok state)
-    in
-    update_term ()
-    >>=? fun state ->
     do_handle_rpc_request_vote self state (node, request_vote, ctx)
+    >>=? function
+      | Ok state ->
+	Deferred.return (Ok state)
 
   let handle_append_entries _self state ret =
     Ivar.fill ret (Error `Not_master);

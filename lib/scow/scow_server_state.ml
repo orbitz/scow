@@ -59,7 +59,6 @@ struct
            ; commit_idx      : Scow_log_index.t
            ; last_applied    : Scow_log_index.t
            ; leader          : Transport.Node.t option
-           ; voted_for       : Transport.Node.t option
            ; votes_for_me    : Transport.Node.t list
            ; handler         : t handler
            ; states          : t States.t
@@ -93,8 +92,6 @@ struct
 
   let create init_args =
     let module Ia = Init_args in
-    Store.load_vote init_args.Ia.store
-    >>=? fun voted_for ->
     Store.load_term init_args.Ia.store
     >>=? fun current_term_opt ->
     let current_term = Option.value current_term_opt ~default:(Scow_term.zero ()) in
@@ -114,7 +111,6 @@ struct
           ; commit_idx      = Scow_log_index.zero ()
           ; last_applied    = Scow_log_index.zero ()
           ; leader          = None
-          ; voted_for       = voted_for
           ; votes_for_me    = []
           ; handler         = init_args.Ia.follower
           ; states          = { States.follower  = init_args.Ia.follower
@@ -174,9 +170,6 @@ struct
 
   let last_applied t = t.last_applied
   let set_last_applied last_applied t = { t with last_applied }
-
-  let voted_for t = t.voted_for
-  let set_voted_for voted_for t = { t with voted_for }
 
   let create_timer timeout server msg =
     let f =
@@ -267,7 +260,6 @@ struct
 
   let set_state_follower t =
     { t with handler = t.states.States.follower }
-    |> set_voted_for None
 
   let set_state_candidate t =
     { t with handler = t.states.States.candidate }

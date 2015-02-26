@@ -78,9 +78,6 @@ sig
   val leader : t -> Transport.Node.t option
   val set_leader : Transport.Node.t option -> t -> t
 
-  val voted_for : t -> Transport.Node.t option
-  val set_voted_for : Transport.Node.t option -> t -> t
-
   val set_heartbeat_timeout    : msg Gen_server.t -> t -> t
   val set_election_timeout     : msg Gen_server.t -> t -> t
   val cancel_election_timeout  : t -> t
