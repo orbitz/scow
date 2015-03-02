@@ -56,9 +56,6 @@ sig
 
   val handler : t -> t handler
 
-  val current_term : t -> Scow_term.t
-  val set_current_term : Scow_term.t -> t -> t
-
   val transport : t -> Transport.t
   val log : t -> Log.t
   val store : t -> Store.t

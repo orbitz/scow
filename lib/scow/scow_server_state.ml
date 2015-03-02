@@ -55,7 +55,6 @@ struct
            ; transport       : Transport.t
            ; log             : Log.t
            ; store           : Store.t
-           ; current_term    : Scow_term.t
            ; commit_idx      : Scow_log_index.t
            ; last_applied    : Scow_log_index.t
            ; leader          : Transport.Node.t option
@@ -92,9 +91,6 @@ struct
 
   let create init_args =
     let module Ia = Init_args in
-    Store.load_term init_args.Ia.store
-    >>=? fun current_term_opt ->
-    let current_term = Option.value current_term_opt ~default:(Scow_term.zero ()) in
     let nodes =
       List.filter
         ~f:(fun n -> Transport.Node.compare n init_args.Ia.me <> 0)
@@ -107,7 +103,6 @@ struct
           ; transport       = init_args.Ia.transport
           ; log             = init_args.Ia.log
           ; store           = init_args.Ia.store
-          ; current_term    = current_term
           ; commit_idx      = Scow_log_index.zero ()
           ; last_applied    = Scow_log_index.zero ()
           ; leader          = None
@@ -134,9 +129,6 @@ struct
   let leader t = t.leader
   let set_leader leader_opt t =
     { t with leader = leader_opt }
-
-  let current_term t = t.current_term
-  let set_current_term term t = { t with current_term = term }
 
   let transport t = t.transport
   let log t = t.log
