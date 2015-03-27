@@ -45,19 +45,15 @@ struct
       ~init:idx
       entries
 
-  let term_or_zero = function
-    | Some term -> term
-    | None      -> Scow_term.zero ()
-
   let send_entries self state node start_idx entries =
     Log.get_term (State.log state) (Scow_log_index.pred start_idx)
     >>=? fun prev_term ->
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
+    >>=? fun current_term ->
     let next_idx = count_entries start_idx entries in
     let append_entries =
       Scow_rpc.Append_entries.(
-        { term           = term_or_zero current_term_opt
+        { term           = current_term
         ; prev_log_index = Scow_log_index.pred start_idx
         ; prev_log_term  = prev_term
         ; leader_commit  = State.commit_idx state
@@ -166,8 +162,7 @@ struct
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     if Scow_term.compare current_term append_entries.Ae.term < 0 then begin
       let state =
         state
@@ -200,8 +195,7 @@ struct
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     if Scow_term.compare current_term request_vote.Rv.term < 0 then begin
       let state =
         state
@@ -235,8 +229,7 @@ struct
 
   let handle_append_entry self state ret entry =
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     Log.append (State.log state) [(current_term, entry)]
     >>= function
       | Ok log_index -> begin
@@ -312,8 +305,7 @@ struct
   let update_commit_idx state =
     Store.load_term (State.store state)
     >>= function
-      | Ok current_term_opt -> begin
-	let current_term = term_or_zero current_term_opt in
+      | Ok current_term -> begin
 	let highest_match_idx = State.compute_highest_match_idx state in
 	Log.get_term (State.log state) highest_match_idx
 	>>= function
@@ -339,14 +331,6 @@ struct
 	>>=? fun (_low, high) ->
 	Deferred.return (Ok high)
       end
-
-  let get_current_term state =
-    Store.load_term (State.store state)
-    >>=? function
-      | Some term ->
-	Deferred.return (Ok term)
-      | None ->
-	Deferred.return (Ok (Scow_term.zero ()))
 
   let remote_node_ahead self node term state =
     let state =
@@ -392,7 +376,7 @@ struct
   let do_handle_append_entries_resp self state node next_next_idx resp =
     get_node_next_idx node state
     >>=? fun next_idx ->
-    get_current_term state
+    Store.load_term (State.store state)
     >>=? fun current_term ->
     match resp with
       | Ok (term, _) when Scow_term.compare current_term term < 0 -> begin

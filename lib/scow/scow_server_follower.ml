@@ -16,15 +16,6 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  let term_or_zero = function
-    | Some term -> term
-    | None      -> Scow_term.zero ()
-
-  (*
-   *************************************************************
-   * Requesting votes
-   *************************************************************
-   *)
   let request_votes self vote_request transport nodes =
     let send_request_vote node =
       Transport.request_vote
@@ -68,8 +59,7 @@ struct
 
   let term_is_valid term state =
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     let term_in_past =
       Scow_term.compare term current_term < 0
     in
@@ -80,8 +70,7 @@ struct
 
   let maybe_update_term vote_term state =
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     if Scow_term.is_equal vote_term current_term then
       Deferred.return (Ok state)
     else begin
@@ -115,8 +104,7 @@ struct
   let candidate_commit_idx_up_to_date latest_commit_idx request_vote state =
     let module Rv = Scow_rpc.Request_vote in
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     Log.get_term (State.log state) latest_commit_idx
     >>=? fun last_log_term ->
     let i_am_in_future =
@@ -143,15 +131,12 @@ struct
     Store.store_vote (State.store state) (Some node)
     >>=? fun () ->
     Store.load_term (State.store state)
-    >>=? function
-      | Some current_term ->
-	Transport.resp_request_vote
-	  (State.transport state)
-	  ctx
-	  ~term:current_term
-	  ~granted:true
-      | None ->
-	Deferred.return (Error `No_term_stored)
+    >>=? fun current_term ->
+    Transport.resp_request_vote
+      (State.transport state)
+      ctx
+      ~term:current_term
+      ~granted:true
 
   let previous_index_matches_term state append_entries =
     let module Ae      = Scow_rpc.Append_entries in
@@ -301,8 +286,7 @@ struct
 
   let handle_election_timeout self state =
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     let term = Scow_term.succ current_term in
     send_vote_requests self term state
     >>=? fun () ->

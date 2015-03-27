@@ -89,9 +89,14 @@ struct
         Deferred.return (Resp.Ok state)
       end
       | Msg.Get (Msg.Get_current_term ret) -> begin
-	failwith "nyi"
-        (* Ivar.fill ret (State.current_term state); *)
-        (* Deferred.return (Resp.Ok state) *)
+	Store.load_term (State.store state)
+	>>= function
+	  | Ok current_term -> begin
+            Ivar.fill ret current_term;
+            Deferred.return (Resp.Ok state)
+	  end
+	  | Error err ->
+	    Deferred.return (Resp.Error (err, state))
       end
       | Msg.Get _ ->
         Deferred.return (Resp.Ok state)

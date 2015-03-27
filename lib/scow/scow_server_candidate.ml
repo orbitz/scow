@@ -14,15 +14,10 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  let term_or_zero = function
-    | Some term -> term
-    | None      -> Scow_term.zero ()
-
   let do_handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     if Scow_term.compare current_term append_entries.Ae.term <= 0 then begin
       let state = State.set_state_follower state in
       State.handler
@@ -52,8 +47,7 @@ struct
   let do_handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
     Store.load_term (State.store state)
-    >>=? fun current_term_opt ->
-    let current_term = term_or_zero current_term_opt in
+    >>=? fun current_term ->
     if Scow_term.compare current_term request_vote.Rv.term < 0 then begin
       let state =
         state
