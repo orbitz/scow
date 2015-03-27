@@ -22,6 +22,9 @@ struct
              }
   end
 
+  type start_err  = [ `Invalid_vote_store | `Invalid_term_store | `Unknown]
+  type append_err = [ `Not_master | `Append_failed | `Invalid_log | `Closed ]
+
   module Msg       = Scow_server_msg.Make(Statem)(Log)(Transport)
   module State     = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 

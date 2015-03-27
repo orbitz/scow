@@ -24,13 +24,16 @@ sig
              }
   end
 
-  val start        : Init_args.t -> (t, [> `Invalid_vote_store | `Invalid_term_store | `Unknown]) Deferred.Result.t
+  type start_err  = [ `Invalid_vote_store | `Invalid_term_store | `Unknown]
+  type append_err = [ `Not_master | `Append_failed | `Invalid_log | `Closed ]
+
+  val start        : Init_args.t -> (t, [> start_err ]) Deferred.Result.t
   val stop         : t -> unit Deferred.t
 
   val append_log   :
     t ->
     Statem.op ->
-    (Statem.ret, [> `Not_master | `Append_failed | `Invalid_log | `Closed ]) Deferred.Result.t
+    (Statem.ret, [> append_err ]) Deferred.Result.t
 
   val me           : t -> (Transport.Node.t, [> `Closed ]) Deferred.Result.t
   val nodes        : t -> (Transport.Node.t list, [> `Closed ]) Deferred.Result.t
