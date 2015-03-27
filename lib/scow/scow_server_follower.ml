@@ -261,12 +261,12 @@ struct
     term_is_valid vote_term state
     >>=? fun () ->
     maybe_update_term vote_term state
-    >>=? reset_heartbeat self
+    >>=? can_give_vote node
+    >>=? fun () ->
+    reset_heartbeat self state
     >>=? get_latest_commit_idx
     >>=? fun latest_commit_idx ->
     candidate_commit_idx_up_to_date latest_commit_idx request_vote state
-    >>=? fun () ->
-    can_give_vote node state
     >>=? fun () ->
     give_vote ctx node state
     >>=? fun () ->
@@ -277,7 +277,14 @@ struct
     >>= function
       | Ok state ->
 	Deferred.return (Ok state)
-      | Error _ ->
+      | Error `Invalid_term_store
+      | Error `Candidate_commit_not_up_to_date
+      | Error `Invalid_log
+      | Error `Invalid_vote_store
+      | Error `Not_found _
+      | Error `Transport_error
+      | Error `Term_less_than_current _
+      | Error `Already_voted_for _ ->
 	failwith "nyi"
 
   let handle_append_entries _self state ret =
@@ -288,11 +295,11 @@ struct
     Store.load_term (State.store state)
     >>=? fun current_term ->
     let term = Scow_term.succ current_term in
-    send_vote_requests self term state
+    save_term term state
     >>=? fun () ->
     vote_for_self state
     >>=? fun () ->
-    save_term term state
+    send_vote_requests self term state
     >>=? fun () ->
     State.notify state Scow_notify.Event.(State_change (Follower, Candidate))
     >>= fun () ->
