@@ -14,9 +14,16 @@ struct
   module TMsg  = Scow_transport.Msg
   module State = Scow_server_state.Make(Statem)(Log)(Store)(Transport)
 
-  let handle_rpc_append_entries self state (node, append_entries, ctx) =
+  let term_or_zero = function
+    | Some term -> term
+    | None      -> Scow_term.zero ()
+
+  let do_handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
-    if Scow_term.compare (State.current_term state) append_entries.Ae.term <= 0 then begin
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = term_or_zero current_term_opt in
+    if Scow_term.compare current_term append_entries.Ae.term <= 0 then begin
       let state = State.set_state_follower state in
       State.handler
         state
@@ -28,23 +35,35 @@ struct
       Transport.resp_append_entries
         (State.transport state)
         ctx
-        ~term:(State.current_term state)
+        ~term:current_term
         ~success:false
       >>= fun _ ->
       Deferred.return (Ok state)
     end
 
-  let handle_rpc_request_vote self state (node, request_vote, ctx) =
+  let handle_rpc_append_entries self state append_entries_data =
+    do_handle_rpc_append_entries self state append_entries_data
+    >>= function
+      | Ok state ->
+	Deferred.return (Ok state)
+      | Error _ ->
+	failwith "nyi"
+
+  let do_handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then begin
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = term_or_zero current_term_opt in
+    if Scow_term.compare current_term request_vote.Rv.term < 0 then begin
       let state =
         state
         |> State.set_state_follower
-        |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
         |> State.set_heartbeat_timeout self
       in
+      Store.store_term (State.store state) request_vote.Rv.term
+      >>=? fun () ->
       State.notify state Scow_notify.Event.(State_change (Candidate, Follower))
       >>= fun () ->
       State.handler
@@ -57,11 +76,19 @@ struct
       Transport.resp_request_vote
         (State.transport state)
         ctx
-        ~term:(State.current_term state)
+        ~term:current_term
         ~granted:false
       >>= fun _ ->
       Deferred.return (Ok state)
     end
+
+  let handle_rpc_request_vote self state request_vote_data =
+    do_handle_rpc_request_vote self state request_vote_data
+    >>= function
+      | Ok state ->
+	Deferred.return (Ok state)
+      | Error _ ->
+	failwith "nyi"
 
   let handle_append_entries _self state ret =
     Ivar.fill ret (Error `Not_master);
@@ -96,7 +123,6 @@ struct
       Deferred.return (Ok state)
 
   let handle_received_no_vote _self state term =
-    (* Unclear what to do in this case *)
     Deferred.return (Ok state)
 
   let handle_heartbeat_timeout self state =
