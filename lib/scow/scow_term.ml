@@ -17,3 +17,7 @@ let to_int t = t
 let compare = Int.compare
 
 let is_equal t1 t2 = compare t1 t2 = 0
+
+let (>=) = Int.(>=)
+
+let (<) = Int.(<)

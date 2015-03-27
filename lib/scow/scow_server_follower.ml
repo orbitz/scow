@@ -101,31 +101,42 @@ struct
     >>=? fun (_low, high) ->
     Deferred.return (Ok high)
 
-  let candidate_commit_idx_up_to_date latest_commit_idx request_vote state =
+  let candidate_is_up_to_date latest_commit_idx request_vote state =
     let module Rv = Scow_rpc.Request_vote in
     Store.load_term (State.store state)
     >>=? fun current_term ->
     Log.get_term (State.log state) latest_commit_idx
     >>=? fun last_log_term ->
-    let i_am_in_future =
-      Scow_term.compare current_term request_vote.Rv.term > 0 ||
-	Scow_term.compare last_log_term request_vote.Rv.last_log_term > 0 ||
-	Scow_log_index.compare latest_commit_idx request_vote.Rv.last_log_index > 0
+    let candidate_is_up_to_date =
+      Scow_term.(>=) request_vote.Rv.last_log_term last_log_term &&
+	Scow_log_index.(>=) request_vote.Rv.last_log_index latest_commit_idx
     in
-    if i_am_in_future then
+    if candidate_is_up_to_date then
       Deferred.return (Ok ())
     else
-      Deferred.return (Error `Candidate_commit_not_up_to_date)
+      Deferred.return (Error `Candidate_not_up_to_date)
 
-  let can_give_vote node state =
+  let have_not_already_voted node state =
     Store.load_vote (State.store state)
     >>=? function
-      | Some voted_for when Transport.Node.compare voted_for node = 0 ->
+      | Some vote_node when Transport.Node.compare node vote_node = 0 ->
 	Deferred.return (Ok ())
       | None ->
 	Deferred.return (Ok ())
-      | Some voted_for ->
-	Deferred.return (Error (`Already_voted_for voted_for))
+      | Some other_node ->
+	Deferred.return (Error (`Already_voted_for other_node))
+
+  let can_give_vote node request_vote state =
+    let module Rv = Scow_rpc.Request_vote in
+    get_latest_commit_idx state
+    >>=? fun latest_commit_idx ->
+    candidate_is_up_to_date latest_commit_idx request_vote state
+    >>=? fun () ->
+    maybe_update_term request_vote.Rv.term state
+    >>=? fun state ->
+    have_not_already_voted node state
+    >>=? fun () ->
+    Deferred.return (Ok state)
 
   let give_vote ctx node state =
     Store.store_vote (State.store state) (Some node)
@@ -183,10 +194,6 @@ struct
      * If this function returns successfully it means that the log is in
      * a valid state for calling [append]
      *)
-    let module Ae = Scow_rpc.Append_entries in
-    let term = append_entries.Ae.term in
-    term_is_valid term state
-    >>=? fun () ->
     previous_index_matches_term state append_entries
     >>=? fun () ->
     delete_if_not_equal state append_entries
@@ -202,7 +209,7 @@ struct
 
   let apply_state_machine leader_commit state =
     (* Log index less than *)
-    let lile l1 l2 = Scow_log_index.compare l1 l2 < 0 in
+    let lile = Scow_log_index.(<) in
     let rec apply_state_machine' state = function
       | leader_commit when lile (State.last_applied state) leader_commit -> begin
 	let to_apply = Scow_log_index.succ (State.last_applied state) in
@@ -231,43 +238,72 @@ struct
       ~term:term
       ~success:true
 
-  let do_handle_rpc_append_entries self state (node, append_entries, ctx) =
+  let can_accept_append_entries node append_entries state =
     let module Ae = Scow_rpc.Append_entries in
     let term = append_entries.Ae.term in
     term_is_valid term state
     >>=? fun () ->
     maybe_update_term term state
-    >>=? update_leader node
-    >>=? reset_heartbeat self
-    >>=? can_apply_log append_entries
+    >>=? fun state ->
+    update_leader node state
+    >>=? fun state ->
+    can_apply_log append_entries state
     >>=? fun entries ->
+    Deferred.return (Ok (state, entries))
+
+  let do_handle_rpc_append_entries self state (node, append_entries, ctx) =
+    let module Ae = Scow_rpc.Append_entries in
+    let term = append_entries.Ae.term in
+    can_accept_append_entries node append_entries state
+    >>=? fun (state, entries) ->
+    reset_heartbeat self state
+    >>=? fun state ->
     do_append_entries ctx entries state
-    >>=? apply_state_machine append_entries.Ae.leader_commit
-    >>=? reply_append_entries_success ctx term
+    >>=? fun state ->
+    apply_state_machine append_entries.Ae.leader_commit state
+    >>=? fun state ->
+    reply_append_entries_success ctx term state
     >>=? fun () ->
     Deferred.return (Ok state)
+
+  let reply_append_entries_fail state (node, append_entries, ctx) =
+    Store.load_term (State.store state)
+    >>= function
+      | Ok term -> begin
+	Transport.resp_append_entries
+	  (State.transport state)
+	  ctx
+	  ~term:term
+	  ~success:false
+	>>= fun _ ->
+	Deferred.return (Ok state)
+      end
+      | Error `Invalid_term_store ->
+	Deferred.return (Error `Invalid_term_store)
 
   let handle_rpc_append_entries self state append_entries_data =
     do_handle_rpc_append_entries self state append_entries_data
     >>= function
       | Ok state ->
 	Deferred.return (Ok state)
-      | Error _ ->
+      | Error `Invalid_term_store
+      | Error `Invalid_log
+      | Error `Invalid_vote_store as err ->
+	Deferred.return err
+      | Error `Term_less_than_current _
+      | Error `Prev_term_does_not_match ->
+	reply_append_entries_fail state append_entries_data
+      | Error `Append_failed
+      | Error `Not_found _
+      | Error `Transport_error ->
 	failwith "nyi"
 
   let do_handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    let vote_term = request_vote.Rv.term in
-    term_is_valid vote_term state
-    >>=? fun () ->
-    maybe_update_term vote_term state
-    >>=? can_give_vote node
-    >>=? fun () ->
+    can_give_vote node request_vote state
+    >>=? fun state ->
     reset_heartbeat self state
-    >>=? get_latest_commit_idx
-    >>=? fun latest_commit_idx ->
-    candidate_commit_idx_up_to_date latest_commit_idx request_vote state
-    >>=? fun () ->
+    >>=? fun state ->
     give_vote ctx node state
     >>=? fun () ->
     Deferred.return (Ok state)
@@ -278,20 +314,23 @@ struct
       | Ok state ->
 	Deferred.return (Ok state)
       | Error `Invalid_term_store
-      | Error `Candidate_commit_not_up_to_date
       | Error `Invalid_log
-      | Error `Invalid_vote_store
-      | Error `Not_found _
-      | Error `Transport_error
+      | Error `Invalid_vote_store as err ->
+	Deferred.return err
+      | Error `Candidate_not_up_to_date
       | Error `Term_less_than_current _
       | Error `Already_voted_for _ ->
+	(* Need to add code to return false to the candidaet *)
+	failwith "nyi"
+      | Error `Not_found _
+      | Error `Transport_error ->
 	failwith "nyi"
 
   let handle_append_entries _self state ret =
     Ivar.fill ret (Error `Not_master);
     Deferred.return (Ok state)
 
-  let handle_election_timeout self state =
+  let do_handle_election_timeout self state =
     Store.load_term (State.store state)
     >>=? fun current_term ->
     let term = Scow_term.succ current_term in
@@ -308,6 +347,18 @@ struct
     |> State.set_heartbeat_timeout self
     |> Result.return
     |> Deferred.return
+
+  let handle_election_timeout self state =
+    do_handle_election_timeout self state
+    >>= function
+      | Ok state ->
+	Deferred.return (Ok state)
+      | Error `Not_found _ ->
+	failwith "nyi"
+      | Error `Invalid_log
+      | Error `Invalid_vote_store
+      | Error `Invalid_term_store as err ->
+	Deferred.return err
 
   let handle_heartbeat self state =
     state

@@ -8,3 +8,5 @@ let of_int   = Scow_term.of_int
 let to_int   = Scow_term.to_int
 let compare  = Scow_term.compare
 let is_equal = Scow_term.is_equal
+let (>=)     = Scow_term.(>=)
+let (<)      = Scow_term.(<)

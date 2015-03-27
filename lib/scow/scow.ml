@@ -106,7 +106,6 @@ struct
         | `Invalid_log        -> "Invalid_log"
         | `Invalid_term_store -> "Invalid_term_store"
         | `Invalid_vote_store -> "Invalid_vote_store"
-        | `Not_found idx      -> sprintf "Not_found %d" (Scow_log_index.to_int idx)
         | `Transport_error    -> "Transport_error"
       in
       let open Gen_server.Server in
