@@ -45,13 +45,19 @@ struct
       ~init:idx
       entries
 
+  let term_or_zero = function
+    | Some term -> term
+    | None      -> Scow_term.zero ()
+
   let send_entries self state node start_idx entries =
     Log.get_term (State.log state) (Scow_log_index.pred start_idx)
     >>=? fun prev_term ->
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
     let next_idx = count_entries start_idx entries in
     let append_entries =
       Scow_rpc.Append_entries.(
-        { term           = State.current_term state
+        { term           = term_or_zero current_term_opt
         ; prev_log_index = Scow_log_index.pred start_idx
         ; prev_log_term  = prev_term
         ; leader_commit  = State.commit_idx state
@@ -76,17 +82,18 @@ struct
       | (_log, _high) ->
         Deferred.return (Ok [])
 
-  let do_replicate_log self state node =
+  let do_replicate_log self node state =
     let next_idx = Option.value_exn (State.next_idx node state) in
     get_next_log_entries (State.log state) next_idx
     >>=? fun entries ->
     send_entries self state node next_idx entries
 
-  let rec replicate_log self state node =
-    do_replicate_log self state node
+  let replicate_log self node state =
+    do_replicate_log self node state
     >>| function
       | Ok _ ->
         ()
+      | Error `Invalid_term_store
       | Error `Invalid_log
       | Error `Closed ->
         ()
@@ -106,7 +113,7 @@ struct
      *)
     match (State.next_idx node state, State.match_idx node state) with
       | (Some next_idx, Some match_idx) when replication_caught_up ~next_idx ~match_idx -> begin
-        ignore (replicate_log self state node);
+        ignore (replicate_log self node state);
         Deferred.return state
       end
       | (Some _, Some _) ->
@@ -121,14 +128,14 @@ struct
               |> State.set_next_idx node next_idx
               |> State.set_match_idx node (Scow_log_index.zero ())
             in
-            ignore (replicate_log self state node);
+            ignore (replicate_log self node state);
             Deferred.return state
           end
           | Error `Invalid_log ->
             failwith "nyi"
       end
 
-  let maybe_replicate_next_log self state node =
+  let maybe_replicate_next_log self node state =
     let next_idx =
       Option.value
         (State.next_idx node state)
@@ -158,14 +165,18 @@ struct
 
   let handle_rpc_append_entries self state (node, append_entries, ctx) =
     let module Ae = Scow_rpc.Append_entries in
-    if Scow_term.compare (State.current_term state) append_entries.Ae.term < 0 then begin
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = term_or_zero current_term_opt in
+    if Scow_term.compare current_term append_entries.Ae.term < 0 then begin
       let state =
         state
         |> State.set_leader (Some node)
-        |> State.set_current_term append_entries.Ae.term
         |> State.set_state_follower
         |> State.set_heartbeat_timeout self
       in
+      Store.store_term (State.store state) append_entries.Ae.term
+      >>=? fun () ->
       State.notify state Scow_notify.Event.(State_change (Leader, Follower))
       >>= fun () ->
       Store.store_vote (State.store state) None
@@ -180,7 +191,7 @@ struct
       Transport.resp_append_entries
         (State.transport state)
         ctx
-        ~term:(State.current_term state)
+        ~term:current_term
         ~success:false
       >>= fun _ ->
       Deferred.return (Ok state)
@@ -188,16 +199,20 @@ struct
 
   let handle_rpc_request_vote self state (node, request_vote, ctx) =
     let module Rv = Scow_rpc.Request_vote in
-    if Scow_term.compare (State.current_term state) request_vote.Rv.term < 0 then begin
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = term_or_zero current_term_opt in
+    if Scow_term.compare current_term request_vote.Rv.term < 0 then begin
       let state =
         state
         |> State.set_leader (Some node)
         |> State.set_state_follower
-        |> State.set_current_term request_vote.Rv.term
         |> State.cancel_election_timeout
         |> State.cancel_heartbeat_timeout
         |> State.set_heartbeat_timeout self
       in
+      Store.store_term (State.store state) request_vote.Rv.term
+      >>=? fun () ->
       State.notify state Scow_notify.Event.(State_change (Leader, Follower))
       >>= fun () ->
       Store.store_vote (State.store state) None
@@ -212,16 +227,17 @@ struct
       Transport.resp_request_vote
         (State.transport state)
         ctx
-        ~term:(State.current_term state)
+        ~term:current_term
         ~granted:false
       >>= fun _ ->
       Deferred.return (Ok state)
     end
 
   let handle_append_entry self state ret entry =
-    Log.append
-      (State.log state)
-      [State.current_term state, entry]
+    Store.load_term (State.store state)
+    >>=? fun current_term_opt ->
+    let current_term = term_or_zero current_term_opt in
+    Log.append (State.log state) [(current_term, entry)]
     >>= function
       | Ok log_index -> begin
         let ae =
@@ -294,79 +310,151 @@ struct
       Deferred.unit
 
   let update_commit_idx state =
-    let highest_match_idx = State.compute_highest_match_idx state in
-    Log.get_term (State.log state) highest_match_idx
+    Store.load_term (State.store state)
     >>= function
-      | Ok term when Scow_term.is_equal (State.current_term state) term -> begin
-        maybe_notify_commit_idx state highest_match_idx
-        >>= fun () ->
-        Deferred.return (State.set_commit_idx highest_match_idx state)
+      | Ok current_term_opt -> begin
+	let current_term = term_or_zero current_term_opt in
+	let highest_match_idx = State.compute_highest_match_idx state in
+	Log.get_term (State.log state) highest_match_idx
+	>>= function
+	  | Ok term when Scow_term.is_equal current_term term -> begin
+            maybe_notify_commit_idx state highest_match_idx
+            >>= fun () ->
+            Deferred.return (State.set_commit_idx highest_match_idx state)
+	  end
+	  | Ok _ ->
+            Deferred.return state
+	  | Error _ ->
+            failwith "nyi"
       end
-      | Ok _ ->
-        Deferred.return state
       | Error _ ->
-        failwith "nyi"
+	failwith "nyi"
 
-  let do_handle_append_entries_resp self state node next_idx curr_next_idx = function
-    | Ok (term, _) when Scow_term.compare (State.current_term state) term < 0 -> begin
-      (* This node is ahead of us *)
-      let state =
-        state
-        |> State.set_leader (Some node)
-        |> State.set_current_term term
-        |> State.set_state_follower
-        |> State.cancel_election_timeout
-        |> State.set_heartbeat_timeout self
-        |> cancel_pending_append_entries
-      in
-      State.notify state Scow_notify.Event.(State_change (Leader, Follower))
-      >>= fun () ->
-      Store.store_vote (State.store state) None
-      >>=? fun () ->
-      Deferred.return (Ok state)
-    end
-    | Ok (term, true) -> begin
-      let state =
-        state
-        |> State.set_next_idx node next_idx
-        |> State.set_match_idx node (Scow_log_index.pred next_idx)
-      in
-      update_commit_idx state
-      >>= fun state ->
-      apply_state_machine state
-      >>= fun state ->
-      maybe_replicate_next_log self state node
-      >>= fun state ->
-      Deferred.return (Ok state)
-    end
-    | Ok (term, false) -> begin
-      let next_idx = Scow_log_index.pred curr_next_idx in
-      let state = State.set_next_idx node next_idx state in
-      ignore (replicate_log self state node);
-      Deferred.return (Ok state)
-    end
-    | Error `Transport_error -> begin
-      after (sec 0.1)
-      >>= fun () ->
-      ignore (replicate_log self state node);
-      Deferred.return (Ok state)
-    end
+  let get_node_next_idx node state =
+    match State.next_idx node state with
+      | Some next_idx ->
+	Deferred.return (Ok next_idx)
+      | None -> begin
+	Log.get_log_index_range (State.log state)
+	>>=? fun (_low, high) ->
+	Deferred.return (Ok high)
+      end
 
-  let handle_append_entries_resp self state node next_idx resp =
-    let get_curr_next_idx () =
-      match State.next_idx node state with
-        | Some next_idx ->
-          Deferred.return (Ok next_idx)
-        | None -> begin
-          Log.get_log_index_range (State.log state)
-          >>=? fun (_low, high) ->
-          (* Consider pushing back to state *)
-          Deferred.return (Ok high)
-        end
+  let get_current_term state =
+    Store.load_term (State.store state)
+    >>=? function
+      | Some term ->
+	Deferred.return (Ok term)
+      | None ->
+	Deferred.return (Ok (Scow_term.zero ()))
+
+  let remote_node_ahead self node term state =
+    let state =
+      state
+      |> State.set_leader (Some node)
+      |> State.set_state_follower
+      |> State.cancel_election_timeout
+      |> State.set_heartbeat_timeout self
+      |> cancel_pending_append_entries
     in
-    get_curr_next_idx ()
-    >>=? fun curr_next_idx ->
-    do_handle_append_entries_resp self state node next_idx curr_next_idx resp
+    State.notify state Scow_notify.Event.(State_change (Leader, Follower))
+    >>= fun () ->
+    Store.store_term (State.store state) term
+    >>=? fun () ->
+    Store.store_vote (State.store state) None
+    >>=? fun () ->
+    Deferred.return (Ok state)
+
+  let append_entries_succeeded self node next_next_idx state =
+    let state =
+      state
+      |> State.set_next_idx node next_next_idx
+      |> State.set_match_idx node (Scow_log_index.pred next_next_idx)
+    in
+    update_commit_idx state
+    >>= apply_state_machine
+    >>= maybe_replicate_next_log self node
+    >>= fun state ->
+    Deferred.return (Ok state)
+
+  let append_entries_failed self node next_idx state =
+    let next_idx = Scow_log_index.pred next_idx in
+    let state = State.set_next_idx node next_idx state in
+    ignore (replicate_log self node state);
+    Deferred.return (Ok state)
+
+  let retry_replicate self node state =
+    after (sec 0.1)
+    >>= fun () ->
+    ignore (replicate_log self node state);
+    Deferred.return (Ok state)
+
+  let do_handle_append_entries_resp self state node next_next_idx resp =
+    get_node_next_idx node state
+    >>=? fun next_idx ->
+    get_current_term state
+    >>=? fun current_term ->
+    match resp with
+      | Ok (term, _) when Scow_term.compare current_term term < 0 -> begin
+	remote_node_ahead self node term state
+      end
+      | Ok (term, true) -> begin
+	append_entries_succeeded self node next_next_idx state
+      end
+      | Ok (term, false) -> begin
+	append_entries_failed self node next_idx state
+      end
+      | Error `Transport_error -> begin
+	retry_replicate self node state
+      end
+
+  (* let do_handle_append_entries_resp self state node next_idx curr_next_idx = function *)
+  (*   | Ok (term, _) when Scow_term.compare (State.current_term state) term < 0 -> begin *)
+  (*     (\* This node is ahead of us *\) *)
+  (*     let state = *)
+  (*       state *)
+  (*       |> State.set_leader (Some node) *)
+  (*       |> State.set_current_term term *)
+  (*       |> State.set_state_follower *)
+  (*       |> State.cancel_election_timeout *)
+  (*       |> State.set_heartbeat_timeout self *)
+  (*       |> cancel_pending_append_entries *)
+  (*     in *)
+  (*     State.notify state Scow_notify.Event.(State_change (Leader, Follower)) *)
+  (*     >>= fun () -> *)
+  (*     Store.store_vote (State.store state) None *)
+  (*     >>=? fun () -> *)
+  (*     Deferred.return (Ok state) *)
+  (*   end *)
+  (*   | Ok (term, true) -> begin *)
+  (*     let state = *)
+  (*       state *)
+  (*       |> State.set_next_idx node next_idx *)
+  (*       |> State.set_match_idx node (Scow_log_index.pred next_idx) *)
+  (*     in *)
+  (*     update_commit_idx state *)
+  (*     >>= fun state -> *)
+  (*     apply_state_machine state *)
+  (*     >>= fun state -> *)
+  (*     maybe_replicate_next_log self state node *)
+  (*     >>= fun state -> *)
+  (*     Deferred.return (Ok state) *)
+  (*   end *)
+  (*   | Ok (term, false) -> begin *)
+  (*     let next_idx = Scow_log_index.pred curr_next_idx in *)
+  (*     let state = State.set_next_idx node next_idx state in *)
+  (*     ignore (replicate_log self state node); *)
+  (*     Deferred.return (Ok state) *)
+  (*   end *)
+  (*   | Error `Transport_error -> begin *)
+  (*     after (sec 0.1) *)
+  (*     >>= fun () -> *)
+  (*     ignore (replicate_log self state node); *)
+  (*     Deferred.return (Ok state) *)
+  (*   end *)
+
+  let handle_append_entries_resp self state node next_next_idx resp =
+    do_handle_append_entries_resp self state node next_next_idx resp
 
   let handle_call self state = function
     | Msg.Rpc (TMsg.Append_entries (node, append_entries), ctx) -> begin
