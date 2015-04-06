@@ -6,7 +6,7 @@ module Make :
     functor (Log : Scow_log.S) ->
       functor (Transport : Scow_transport.S) ->
 sig
-  type append_entries = (Statem.ret, [ `Not_master | `Append_failed | `Invalid_log ]) Result.t
+  type append_entries = (Statem.ret, [ `Not_master | `Append_failed ]) Result.t
   type rpc = (Transport.Node.t, Transport.elt) Scow_transport.Msg.t * Transport.ctx
   type append_entries_resp =
       (Transport.Node.t * Scow_log_index.t * ((Scow_term.t * bool), [ `Transport_error ]) Result.t)

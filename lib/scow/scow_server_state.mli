@@ -25,7 +25,7 @@ sig
   type t
 
   module Append_entry : sig
-    type errors = [ `Not_master | `Append_failed | `Invalid_log ]
+    type errors = [ `Not_master | `Append_failed ]
     type ret = (Statem.ret, errors) Result.t
     type t = { log_index : Scow_log_index.t
              ; ret       : ret Ivar.t

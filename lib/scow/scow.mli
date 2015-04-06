@@ -25,7 +25,7 @@ sig
   end
 
   type start_err  = [ `Invalid_vote_store | `Invalid_term_store | `Unknown]
-  type append_err = [ `Not_master | `Append_failed | `Invalid_log | `Closed ]
+  type append_err = [ `Not_master | `Append_failed | `Closed ]
 
   val start        : Init_args.t -> (t, [> start_err ]) Deferred.Result.t
   val stop         : t -> unit Deferred.t
