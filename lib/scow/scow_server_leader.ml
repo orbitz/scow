@@ -109,12 +109,6 @@ struct
     else
       ()
 
-  let replicate_next_log_entries self node state =
-    Log.get_log_index_range (State.log state)
-    >>=? fun (_low, high) ->
-    maybe_replicate_new_log self high node state;
-    Deferred.return (Ok state)
-
   let replicate_to_caught_up_nodes self state =
     Log.get_log_index_range (State.log state)
     >>=? fun (_low, high) ->
@@ -122,6 +116,12 @@ struct
       ~f:(Fn.flip (maybe_replicate_new_log self high) state)
       (State.nodes state);
     Deferred.return (Ok ())
+
+  let replicate_next_log_entries self node state =
+    Log.get_log_index_range (State.log state)
+    >>=? fun (_low, high) ->
+    maybe_replicate_new_log self high node state;
+    Deferred.return (Ok state)
 
   let maybe_heartbeat_node self latest_log_idx node state =
     let next_idx = get_next_idx latest_log_idx node state in
@@ -266,7 +266,7 @@ struct
       | None -> begin
 	Log.get_log_index_range (State.log state)
 	>>=? fun (_low, high) ->
-	  Deferred.return (Ok high)
+	Deferred.return (Ok high)
       end
 
   let remote_node_ahead self node term state =
@@ -282,9 +282,9 @@ struct
     >>= fun () ->
     Store.store_term (State.store state) term
     >>=? fun () ->
-      Store.store_vote (State.store state) None
+    Store.store_vote (State.store state) None
     >>=? fun () ->
-      Deferred.return (Ok state)
+    Deferred.return (Ok state)
 
   let append_entries_succeeded self node next_next_idx state =
     let state =
