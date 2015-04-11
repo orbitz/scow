@@ -12,7 +12,12 @@ module Make : functor (Transport : Scow_transport.S) -> sig
     val to_string : t -> string
   end
 
-  val create : int -> Time.Span.t -> Transport.Node.t -> Transport.t -> t
+  val create :
+    faultyness:int ->
+    duration:Time.Span.t ->
+    Transport.Node.t ->
+    Transport.t ->
+    t
 
   val listen :
     t ->

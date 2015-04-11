@@ -41,7 +41,7 @@ module Make = functor (Transport : Scow_transport.S) -> struct
         | `Continue       -> dev_null partition_over transport
     end
 
-  let create faultyness duration me transport =
+  let create ~faultyness ~duration me transport =
     let partition_over = Ivar.create () in
     Ivar.fill partition_over ();
     let t = { faultyness; duration; me; partition_over; transport } in

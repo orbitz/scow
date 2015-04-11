@@ -73,8 +73,8 @@ let create_scow router nodes me =
   let timeout_transport = Timeout_transport.create (sec 1.) memory_transport in
   let transport =
     Transport.create
-      (Int.of_string Sys.argv.(2))
-      (sec (Float.of_string Sys.argv.(3)))
+      ~faultyness:(Int.of_string Sys.argv.(2))
+      ~duration:(sec (Float.of_string Sys.argv.(3)))
       me
       timeout_transport
   in
