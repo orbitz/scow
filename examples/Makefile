@@ -1,5 +1,5 @@
 CAMLP4=
-OCAMLC_OPTS=-package scow -w '@f@p@u@s@40'
+OCAMLC_OPTS=-package scow -w '@f@p@u@s@40' -g
 OCAMLOPT_OPTS=$(OCAMLC_OPTS)
 
 NON_LIB_MODULES=simple.ml simple_faulty.ml \
